@@ -6,6 +6,7 @@ import DisplayContentModal from '../components/DisplayContentModal';
 import StoreDevicesManagement from './StoreDevicesManagement';
 import StoreGroupsManagement from './StoreGroupsManagement';
 import QuickActionsEditor from '../components/QuickActionsEditor';
+import OperatorMetricsBar from '../components/OperatorMetricsBar';
 
 interface DisplayManagementProps {
   storeId: number;
@@ -937,7 +938,17 @@ export default function DisplayManagement({ storeId, storeName, onBack, isHomePa
         </div>
       </div>
 
-      <div className="p-4">
+      <div className="p-4 md:p-6">
+        {/* Metrics Bar */}
+        <OperatorMetricsBar
+          storeId={storeId}
+          onNavigate={(view) => {
+            if (view === 'labels') setCurrentPage('devices');
+            else if (view === 'groups') setCurrentPage('groups');
+            else if (view === 'products') setCurrentPage('products');
+          }}
+        />
+
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Displays</h2>
           <button
