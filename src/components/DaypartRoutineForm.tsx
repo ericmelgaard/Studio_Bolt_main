@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { AlertCircle, Calendar, Sparkles, Info, Trash2 } from 'lucide-react';
+import { AlertCircle, Calendar, Sparkles, Info, Trash2, Clock, Ban } from 'lucide-react';
 import TimeSelector from './TimeSelector';
 import DaySelector from './DaySelector';
 import { supabase } from '../lib/supabase';
@@ -85,19 +85,16 @@ export default function DaypartRoutineForm({
   const [daypartTypes, setDaypartTypes] = useState<DaypartDefinition[]>([]);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
 
-  const isScheduleDisabled = (startTime: string | null, endTime: string | null) => {
-    return startTime === '03:00' && endTime === '03:01';
-  };
-
   const scheduleType = editingRoutine?.schedule_type || preFillScheduleType || 'regular' as 'regular' | 'event_holiday';
   const eventName = editingRoutine?.event_name || '';
+  const editingIsDisabled = editingRoutine ? editingRoutine.runs_on_days === false : false;
   const initialFormData = {
     schedule_type: scheduleType,
     daypart_name: editingRoutine?.daypart_name || preFillDaypart || '',
     days_of_week: editingRoutine?.days_of_week || preFillDaysOfWeek || [] as number[],
     start_time: editingRoutine?.start_time || preFillStartTime || '06:00',
     end_time: editingRoutine?.end_time || preFillEndTime || '11:00',
-    runs_on_days: true,
+    runs_on_days: !editingIsDisabled,
     event_name: eventName,
     event_date: editingRoutine?.event_date || '',
     recurrence_type: editingRoutine?.recurrence_type || 'none' as 'none' | 'annual_date' | 'monthly_date' | 'annual_relative' | 'annual_date_range',
@@ -232,7 +229,7 @@ export default function DaypartRoutineForm({
       }
     }
 
-    if (formData.start_time === formData.end_time) {
+    if (formData.runs_on_days && formData.start_time === formData.end_time) {
       setError('Start time and end time must be different');
       return;
     }
@@ -249,9 +246,9 @@ export default function DaypartRoutineForm({
       const saveData = {
         placement_group_id: placementGroupId,
         ...formData,
-        runs_on_days: true,
-        start_time: formData.start_time,
-        end_time: formData.end_time,
+        runs_on_days: formData.runs_on_days,
+        start_time: formData.runs_on_days ? formData.start_time : null,
+        end_time: formData.runs_on_days ? formData.end_time : null,
         event_date: formData.event_date || undefined,
         priority_level,
         recurrence_config: Object.keys(formData.recurrence_config).length > 0 ? formData.recurrence_config : undefined
@@ -569,8 +566,45 @@ export default function DaypartRoutineForm({
 
             <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 px-3 py-2 rounded-lg">
               <span className="font-medium">
-                Priority: {getPriorityLevel(formData.recurrence_type) === 100 ? 'Single Day' : 'Date Range'}
+                {getPriorityLevel(formData.recurrence_type) === 100 ? 'Applies to a single occurrence' : 'Applies across a date range'}
               </span>
+            </div>
+
+            {/* Schedule Mode Toggle — event/holiday schedules */}
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-slate-700">Schedule Mode</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, runs_on_days: true })}
+                  className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-all ${
+                    formData.runs_on_days
+                      ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
+                      : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                  }`}
+                >
+                  <Clock className="w-4 h-4" />
+                  Set Custom Times
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, runs_on_days: false })}
+                  className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-all ${
+                    !formData.runs_on_days
+                      ? 'bg-slate-700 border-slate-700 text-white shadow-sm'
+                      : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                  }`}
+                >
+                  <Ban className="w-4 h-4" />
+                  Disable / Closed
+                </button>
+              </div>
+              {!formData.runs_on_days && (
+                <p className="text-xs text-slate-500 flex items-center gap-1.5 pt-0.5">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-slate-400" />
+                  This daypart will be closed on this event — no content will be shown
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -586,6 +620,46 @@ export default function DaypartRoutineForm({
           />
         )}
 
+        {/* Schedule Mode Toggle — regular schedules */}
+        {formData.schedule_type === 'regular' && (
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-slate-700">Schedule Mode</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, runs_on_days: true })}
+                className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-all ${
+                  formData.runs_on_days
+                    ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
+                    : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                <Clock className="w-4 h-4" />
+                Set Custom Times
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, runs_on_days: false })}
+                className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-all ${
+                  !formData.runs_on_days
+                    ? 'bg-slate-700 border-slate-700 text-white shadow-sm'
+                    : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                <Ban className="w-4 h-4" />
+                Disable / Closed
+              </button>
+            </div>
+            {!formData.runs_on_days && (
+              <p className="text-xs text-slate-500 flex items-center gap-1.5 pt-0.5">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-slate-400" />
+                This daypart will be marked as closed on these days
+              </p>
+            )}
+          </div>
+        )}
+
+        {formData.runs_on_days && (
         <div className="grid grid-cols-2 gap-4">
           <TimeSelector
             label="Start Time *"
@@ -598,6 +672,7 @@ export default function DaypartRoutineForm({
             onChange={(time) => setFormData({ ...formData, end_time: time })}
           />
         </div>
+        )}
 
       </div>
 
