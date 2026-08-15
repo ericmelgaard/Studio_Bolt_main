@@ -436,10 +436,15 @@ export default function IntegrationAccess() {
         <div className="space-y-3">
           {sourceConfigs.map(config => {
             const isExpanded = expandedSources[config.id];
-            const isConfigured = config.config_params && Object.keys(config.config_params).length > 0;
+            const requiredFields = config.wand_integration_sources?.required_config_fields ?? [];
+            const missingFields = requiredFields.filter(f => {
+              const val = config.config_params?.[f];
+              return !val || (typeof val === 'string' && val.trim() === '');
+            });
+            const isConfigured = missingFields.length === 0;
             const configLabel = config.application_level === 'concept'
               ? (isConfigured ? 'Catalog Source Configured' : 'Not Configured')
-              : (isConfigured ? 'Fully Configured' : 'Missing API Configuration');
+              : (isConfigured ? 'Ready' : `Missing: ${missingFields.join(', ')}`);
 
             return (
               <div key={config.id} className={`bg-white rounded-xl shadow-sm border overflow-hidden transition-all ${
