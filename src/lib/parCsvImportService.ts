@@ -14,6 +14,8 @@ export interface ParImportResult {
   rows_failed: number;
   products_updated: number;
   new_products_added: number;
+  products_unchanged: number;
+  price_changes: number;
   error_details: Array<{ row: number; message: string; data?: string }>;
   status: 'success' | 'partial' | 'failed';
 }
@@ -133,7 +135,7 @@ export async function importParFile(
     if (!firstSheetName) {
       return {
         rows_processed: 0, rows_succeeded: 0, rows_failed: 0,
-        products_updated: 0, new_products_added: 0,
+        products_updated: 0, new_products_added: 0, products_unchanged: 0, price_changes: 0,
         error_details: [{ row: 0, message: 'Excel file has no sheets' }],
         status: 'failed',
       };
@@ -143,7 +145,7 @@ export async function importParFile(
     if (jsonRows.length < 2) {
       return {
         rows_processed: 0, rows_succeeded: 0, rows_failed: 0,
-        products_updated: 0, new_products_added: 0,
+        products_updated: 0, new_products_added: 0, products_unchanged: 0, price_changes: 0,
         error_details: [{ row: 0, message: 'Excel file is empty or has no data rows' }],
         status: 'failed',
       };
@@ -167,6 +169,8 @@ export async function importParCsv(
     rows_failed: 0,
     products_updated: 0,
     new_products_added: 0,
+    products_unchanged: 0,
+    price_changes: 0,
     error_details: [],
     status: 'success',
   };
@@ -187,6 +191,8 @@ async function processParRows(
     rows_failed: 0,
     products_updated: 0,
     new_products_added: 0,
+    products_unchanged: 0,
+    price_changes: 0,
     error_details: [],
     status: 'success',
   };
@@ -286,30 +292,59 @@ async function processParRows(
 
   const plusToFind = uniqueRows.map(r => r.plu);
   const existingMap = new Map<string, string>();
+  const existingDataById = new Map<string, { name: string; data: Record<string, any> }>();
 
   const CHUNK_SIZE = 200;
   for (let i = 0; i < plusToFind.length; i += CHUNK_SIZE) {
     const chunk = plusToFind.slice(i, i + CHUNK_SIZE);
     const { data: existing, error: fetchError } = await supabase
       .from('integration_products')
-      .select('id, external_id')
+      .select('id, external_id, name, data')
       .eq('wand_source_id', wandSourceId)
       .in('external_id', chunk);
 
     if (fetchError) {
       console.error('Error fetching existing products:', fetchError);
     } else if (existing) {
-      existing.forEach((p: any) => existingMap.set(String(p.external_id), p.id));
+      existing.forEach((p: any) => {
+        existingMap.set(String(p.external_id), p.id);
+        existingDataById.set(p.id, { name: p.name, data: p.data ?? {} });
+      });
     }
   }
 
   const toInsert: any[] = [];
   const toUpdate: { id: string; name: string; data: Record<string, any> }[] = [];
 
+  const existingDataMap = new Map<string, { name: string; data: Record<string, any> }>();
+  for (const [plu, id] of existingMap) {
+    const existingProduct = existingDataById.get(id);
+    if (existingProduct) {
+      existingDataMap.set(plu, { name: existingProduct.name, data: existingProduct.data });
+    }
+  }
+
   for (const r of uniqueRows) {
     const existingId = existingMap.get(r.plu);
     if (existingId) {
-      toUpdate.push({ id: existingId, name: r.name, data: r.data });
+      const existing = existingDataMap.get(r.plu);
+      const oldPrice = existing?.data?.price ?? 0;
+      const newPrice = r.data.price ?? 0;
+      const oldName = existing?.name ?? '';
+      const newName = r.name;
+
+      const dataChanged = !existing ||
+        JSON.stringify(existing.data) !== JSON.stringify(r.data) ||
+        oldName !== newName;
+
+      if (dataChanged) {
+        toUpdate.push({ id: existingId, name: r.name, data: r.data });
+        if (oldPrice !== newPrice) {
+          result.price_changes++;
+        }
+      } else {
+        result.products_unchanged++;
+      }
     } else {
       toInsert.push({
         wand_source_id: wandSourceId,
@@ -395,6 +430,8 @@ async function logParUpload(config: ParImportConfig, result: ParImportResult, fi
       rows_failed: result.rows_failed,
       products_updated: result.products_updated,
       new_products_added: result.new_products_added,
+      products_unchanged: result.products_unchanged,
+      price_changes: result.price_changes,
       error_details: result.error_details,
       status: result.status,
     });

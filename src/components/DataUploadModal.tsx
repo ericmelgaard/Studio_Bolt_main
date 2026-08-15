@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { UploadCloud, FileSpreadsheet, FileJson, X, CheckCircle, AlertCircle, TrendingUp, Package, Loader } from 'lucide-react';
+import { UploadCloud, FileSpreadsheet, FileJson, X, CheckCircle, AlertCircle, TrendingUp, Package, Loader, DollarSign, Minus } from 'lucide-react';
 import { IntegrationMagicLinkService, SimulatedUploadResult } from '../lib/integrationMagicLinkService';
 import { importParFile, type ParImportResult } from '../lib/parCsvImportService';
 
@@ -83,6 +83,8 @@ export default function DataUploadModal({
         rows_failed: 0,
         products_updated: 0,
         new_products_added: 0,
+        products_unchanged: 0,
+        price_changes: 0,
         error_details: [{ row: 0, message: error.message || 'Failed to process file' }],
         status: 'failed',
       });
@@ -234,18 +236,25 @@ export default function DataUploadModal({
                 </div>
 
                 {/* Stats Grid */}
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-4 gap-3">
                   <div className="bg-white rounded-lg p-4 border border-slate-200">
                     <div className="flex items-center gap-2 mb-1">
-                      <Package className="w-4 h-4 text-blue-600" />
+                      <Package className="w-4 h-4 text-slate-600" />
                       <span className="text-xs font-medium text-slate-500">Rows Processed</span>
                     </div>
                     <div className="text-2xl font-bold text-slate-900">{result.rows_processed}</div>
                   </div>
                   <div className="bg-white rounded-lg p-4 border border-slate-200">
                     <div className="flex items-center gap-2 mb-1">
+                      <DollarSign className="w-4 h-4 text-amber-600" />
+                      <span className="text-xs font-medium text-slate-500">Price Changes</span>
+                    </div>
+                    <div className="text-2xl font-bold text-amber-600">{result.price_changes ?? 0}</div>
+                  </div>
+                  <div className="bg-white rounded-lg p-4 border border-slate-200">
+                    <div className="flex items-center gap-2 mb-1">
                       <TrendingUp className="w-4 h-4 text-green-600" />
-                      <span className="text-xs font-medium text-slate-500">Products Updated</span>
+                      <span className="text-xs font-medium text-slate-500">Updated</span>
                     </div>
                     <div className="text-2xl font-bold text-green-600">{result.products_updated}</div>
                   </div>
@@ -257,6 +266,14 @@ export default function DataUploadModal({
                     <div className="text-2xl font-bold text-blue-600">{result.new_products_added}</div>
                   </div>
                 </div>
+
+                {/* Unchanged notice */}
+                {(result.products_unchanged ?? 0) > 0 && (
+                  <div className="mt-3 flex items-center gap-2 text-sm text-slate-500">
+                    <Minus className="w-4 h-4" />
+                    <span>{result.products_unchanged} products unchanged</span>
+                  </div>
+                )}
 
                 {/* Row Summary */}
                 <div className="mt-3 flex items-center gap-4 text-sm">

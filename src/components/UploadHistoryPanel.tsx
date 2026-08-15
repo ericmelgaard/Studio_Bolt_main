@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { History, CheckCircle, AlertCircle, Clock, Upload, Link2, Server, TrendingUp, Package } from 'lucide-react';
+import { History, CheckCircle, AlertCircle, Clock, Upload, Link2, Server, TrendingUp, Package, DollarSign, Minus } from 'lucide-react';
 import { IntegrationMagicLinkService, UploadHistoryEntry } from '../lib/integrationMagicLinkService';
 
 interface UploadHistoryPanelProps {
@@ -125,10 +125,17 @@ export default function UploadHistoryPanel({ configId }: UploadHistoryPanelProps
               </div>
             </div>
 
-            <div className="grid grid-cols-4 gap-2 pt-3 border-t border-slate-100">
+            <div className="grid grid-cols-5 gap-2 pt-3 border-t border-slate-100">
               <div>
                 <div className="text-xs text-slate-500">Rows</div>
                 <div className="text-sm font-semibold text-slate-900">{entry.rows_processed}</div>
+              </div>
+              <div>
+                <div className="text-xs text-slate-500 flex items-center gap-1">
+                  <DollarSign className="w-3 h-3" />
+                  Price Changes
+                </div>
+                <div className="text-sm font-semibold text-amber-600">{entry.price_changes ?? 0}</div>
               </div>
               <div>
                 <div className="text-xs text-slate-500 flex items-center gap-1">
@@ -145,10 +152,11 @@ export default function UploadHistoryPanel({ configId }: UploadHistoryPanelProps
                 <div className="text-sm font-semibold text-blue-600">{entry.new_products_added}</div>
               </div>
               <div>
-                <div className="text-xs text-slate-500">Failed</div>
-                <div className={`text-sm font-semibold ${entry.rows_failed > 0 ? 'text-red-600' : 'text-slate-400'}`}>
-                  {entry.rows_failed}
+                <div className="text-xs text-slate-500 flex items-center gap-1">
+                  <Minus className="w-3 h-3" />
+                  Unchanged
                 </div>
+                <div className="text-sm font-semibold text-slate-400">{entry.products_unchanged ?? 0}</div>
               </div>
             </div>
           </div>
