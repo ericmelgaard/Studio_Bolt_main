@@ -214,6 +214,15 @@ async function processParRows(
   const wandSourceId = config.wandSourceId || PAR_SOURCE_ID;
   const now = new Date().toISOString();
 
+  type ParsedRow = {
+    rowIndex: number;
+    name: string;
+    plu: string;
+    data: Record<string, any>;
+  };
+
+  const validRows: ParsedRow[] = [];
+
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     result.rows_processed++;
@@ -252,46 +261,7 @@ async function processParRows(
         data.taxGroup = row[fieldMap.taxGroup];
       }
 
-      const existing = await supabase
-        .from('integration_products')
-        .select('id')
-        .eq('wand_source_id', wandSourceId)
-        .eq('external_id', plu)
-        .maybeSingle();
-
-      if (existing.data) {
-        const { error: updateError } = await supabase
-          .from('integration_products')
-          .update({
-            name,
-            data,
-            last_synced_at: now,
-            updated_at: now,
-          })
-          .eq('id', existing.data.id);
-
-        if (updateError) throw updateError;
-        result.products_updated++;
-      } else {
-        const { error: insertError } = await supabase
-          .from('integration_products')
-          .insert({
-            wand_source_id: wandSourceId,
-            external_id: plu,
-            name,
-            item_type: 'product',
-            data,
-            concept_id: config.conceptId || null,
-            company_id: config.companyId || null,
-            site_id: config.siteId || null,
-            last_synced_at: now,
-          });
-
-        if (insertError) throw insertError;
-        result.new_products_added++;
-      }
-
-      result.rows_succeeded++;
+      validRows.push({ rowIndex: i + 2, name, plu, data });
     } catch (error: any) {
       result.rows_failed++;
       result.error_details.push({
@@ -300,6 +270,103 @@ async function processParRows(
         data: row.join(',').substring(0, 100),
       });
     }
+  }
+
+  if (validRows.length === 0) {
+    result.status = 'failed';
+    await logParUpload(config, result, fileType);
+    return result;
+  }
+
+  const plusToFind = validRows.map(r => r.plu);
+  const existingMap = new Map<string, string>();
+
+  const CHUNK_SIZE = 200;
+  for (let i = 0; i < plusToFind.length; i += CHUNK_SIZE) {
+    const chunk = plusToFind.slice(i, i + CHUNK_SIZE);
+    const { data: existing, error: fetchError } = await supabase
+      .from('integration_products')
+      .select('id, external_id')
+      .eq('wand_source_id', wandSourceId)
+      .in('external_id', chunk);
+
+    if (fetchError) {
+      console.error('Error fetching existing products:', fetchError);
+    } else if (existing) {
+      existing.forEach((p: any) => existingMap.set(String(p.external_id), p.id));
+    }
+  }
+
+  const toInsert: any[] = [];
+  const toUpdate: { id: string; name: string; data: Record<string, any> }[] = [];
+
+  for (const r of validRows) {
+    const existingId = existingMap.get(r.plu);
+    if (existingId) {
+      toUpdate.push({ id: existingId, name: r.name, data: r.data });
+    } else {
+      toInsert.push({
+        wand_source_id: wandSourceId,
+        external_id: r.plu,
+        name: r.name,
+        item_type: 'product',
+        data: r.data,
+        concept_id: config.conceptId || null,
+        company_id: config.companyId || null,
+        site_id: config.siteId || null,
+        last_synced_at: now,
+      });
+    }
+  }
+
+  for (let i = 0; i < toInsert.length; i += CHUNK_SIZE) {
+    const chunk = toInsert.slice(i, i + CHUNK_SIZE);
+    const { error: insertError } = await supabase
+      .from('integration_products')
+      .insert(chunk);
+
+    if (insertError) {
+      console.error('Bulk insert error:', insertError);
+      result.rows_failed += chunk.length;
+      result.error_details.push({ row: 0, message: `Bulk insert failed: ${insertError.message}` });
+    } else {
+      result.new_products_added += chunk.length;
+      result.rows_succeeded += chunk.length;
+    }
+  }
+
+  for (let i = 0; i < toUpdate.length; i += CHUNK_SIZE) {
+    const chunk = toUpdate.slice(i, i + CHUNK_SIZE);
+    const updatePromises = chunk.map(item =>
+      supabase
+        .from('integration_products')
+        .update({
+          name: item.name,
+          data: item.data,
+          last_synced_at: now,
+          updated_at: now,
+        })
+        .eq('id', item.id)
+    );
+
+    const results = await Promise.all(updatePromises);
+    const failedInChunk = results.filter(r => r.error).length;
+
+    if (failedInChunk > 0) {
+      result.rows_failed += failedInChunk;
+      results.forEach((r, idx) => {
+        if (r.error) {
+          result.error_details.push({
+            row: 0,
+            message: `Update failed for product ${chunk[idx].id}: ${r.error.message}`,
+          });
+        }
+      });
+    }
+
+    const succeededInChunk = chunk.length - failedInChunk;
+    result.products_updated += succeededInChunk;
+    result.rows_succeeded += succeededInChunk;
   }
 
   result.status = result.rows_failed === 0 ? 'success' : result.rows_succeeded > 0 ? 'partial' : 'failed';
