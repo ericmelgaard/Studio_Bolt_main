@@ -30,19 +30,31 @@ export interface ParImportConfig {
 
 const PAR_SOURCE_ID = '361c7668-df99-4dc6-ab9b-c169d7918cb2';
 
+function detectDelimiter(lines: string[]): string {
+  const sample = lines.find(l => l.trim()) || '';
+  const tabCount = (sample.match(/\t/g) || []).length;
+  const commaCount = (sample.match(/,/g) || []).length;
+  const semicolonCount = (sample.match(/;/g) || []).length;
+
+  if (tabCount >= commaCount && tabCount >= semicolonCount && tabCount > 0) return '\t';
+  if (semicolonCount > commaCount && semicolonCount > 0) return ';';
+  return ',';
+}
+
 export function parseParCsv(text: string): { headers: string[]; rows: string[][] } {
   const lines = text.split(/\r?\n/).filter(line => line.trim());
   if (lines.length < 2) {
     return { headers: [], rows: [] };
   }
 
-  const headers = parseCsvLine(lines[0]);
-  const rows = lines.slice(1).map(line => parseCsvLine(line));
+  const delimiter = detectDelimiter(lines);
+  const headers = parseDelimitedLine(lines[0], delimiter);
+  const rows = lines.slice(1).map(line => parseDelimitedLine(line, delimiter));
 
   return { headers, rows };
 }
 
-function parseCsvLine(line: string): string[] {
+function parseDelimitedLine(line: string, delimiter: string): string[] {
   const result: string[] = [];
   let current = '';
   let inQuotes = false;
@@ -57,7 +69,7 @@ function parseCsvLine(line: string): string[] {
       } else {
         inQuotes = !inQuotes;
       }
-    } else if (char === ',' && !inQuotes) {
+    } else if (char === delimiter && !inQuotes) {
       result.push(current.trim());
       current = '';
     } else {
