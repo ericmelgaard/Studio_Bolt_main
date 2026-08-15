@@ -243,7 +243,7 @@ async function processParRows(
       }
 
       if (!plu.trim()) {
-        throw new Error('Missing PLU');
+        continue;
       }
 
       result.rows_processed++;
