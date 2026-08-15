@@ -32,6 +32,7 @@ export interface UploadHistoryEntry {
   new_products_added: number;
   products_unchanged?: number;
   price_changes?: number;
+  removed_products?: number;
   error_details: any[];
   status: 'success' | 'partial' | 'failed';
   created_at: string;

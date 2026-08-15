@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
-import { UploadCloud, FileSpreadsheet, FileJson, X, CheckCircle, AlertCircle, Package, Loader, DollarSign, Minus } from 'lucide-react';
+import { UploadCloud, FileSpreadsheet, FileJson, X, CheckCircle, AlertCircle, Package, Loader, DollarSign, ChevronDown, ChevronRight, Plus, TrendingDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { IntegrationMagicLinkService, SimulatedUploadResult } from '../lib/integrationMagicLinkService';
-import { importParFile, type ParImportResult } from '../lib/parCsvImportService';
+import { importParFile, type ParImportResult, type PriceChangeDetail, type NewProductDetail, type RemovedProductDetail } from '../lib/parCsvImportService';
 
 interface DataUploadModalProps {
   isOpen: boolean;
@@ -24,6 +24,7 @@ export default function DataUploadModal({
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<SimulatedUploadResult | ParImportResult | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
@@ -235,15 +236,8 @@ export default function DataUploadModal({
                   </div>
                 </div>
 
-                {/* Stats Grid */}
-                <div className="grid grid-cols-4 gap-3">
-                  <div className="bg-white rounded-lg p-4 border border-slate-200 flex flex-col">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Package className="w-4 h-4 text-slate-600" />
-                      <span className="text-xs font-medium text-slate-500">Rows Processed</span>
-                    </div>
-                    <div className="text-2xl font-bold text-slate-900 mt-auto">{result.rows_processed}</div>
-                  </div>
+                {/* Primary Stats - only what matters */}
+                <div className="grid grid-cols-3 gap-3">
                   <div className="bg-white rounded-lg p-4 border border-slate-200 flex flex-col">
                     <div className="flex items-center gap-2 mb-2">
                       <DollarSign className="w-4 h-4 text-amber-600" />
@@ -253,28 +247,136 @@ export default function DataUploadModal({
                   </div>
                   <div className="bg-white rounded-lg p-4 border border-slate-200 flex flex-col">
                     <div className="flex items-center gap-2 mb-2">
-                      <Package className="w-4 h-4 text-blue-600" />
+                      <Plus className="w-4 h-4 text-blue-600" />
                       <span className="text-xs font-medium text-slate-500">New Products</span>
                     </div>
                     <div className="text-2xl font-bold text-blue-600 mt-auto">{result.new_products_added}</div>
                   </div>
                   <div className="bg-white rounded-lg p-4 border border-slate-200 flex flex-col">
                     <div className="flex items-center gap-2 mb-2">
-                      <Minus className="w-4 h-4 text-slate-400" />
-                      <span className="text-xs font-medium text-slate-500">Unchanged</span>
+                      <TrendingDown className="w-4 h-4 text-red-600" />
+                      <span className="text-xs font-medium text-slate-500">Removed</span>
                     </div>
-                    <div className="text-2xl font-bold text-slate-400 mt-auto">{result.products_unchanged ?? 0}</div>
+                    <div className="text-2xl font-bold text-red-600 mt-auto">{result.removed_products ?? 0}</div>
                   </div>
                 </div>
 
+                {/* No changes message */}
+                {(result.price_changes ?? 0) === 0 && (result.new_products_added ?? 0) === 0 && (result.removed_products ?? 0) === 0 && (
+                  <div className="mt-4 flex items-center gap-2 text-sm text-slate-500">
+                    <CheckCircle className="w-4 h-4 text-slate-400" />
+                    <span>No changes detected — all {result.rows_processed} products match existing data.</span>
+                  </div>
+                )}
+
                 {/* Row Summary */}
-                <div className="mt-3 flex items-center gap-4 text-sm">
-                  <span className="text-green-700 font-medium">{result.rows_succeeded} succeeded</span>
-                  {result.rows_failed > 0 && (
+                {result.rows_failed > 0 && (
+                  <div className="mt-3 flex items-center gap-4 text-sm">
                     <span className="text-red-700 font-medium">{result.rows_failed} failed</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Expandable Price Changes */}
+              {(result as ParImportResult).price_change_details?.length > 0 && (
+                <div className="mb-3 border border-slate-200 rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => setExpandedSection(expandedSection === 'price' ? null : 'price')}
+                    className="w-full flex items-center justify-between p-4 bg-amber-50 hover:bg-amber-100 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      {expandedSection === 'price' ? <ChevronDown className="w-4 h-4 text-amber-700" /> : <ChevronRight className="w-4 h-4 text-amber-700" />}
+                      <DollarSign className="w-4 h-4 text-amber-600" />
+                      <span className="font-medium text-slate-900">Price Changes</span>
+                      <span className="text-sm text-amber-700">({result.price_changes})</span>
+                    </div>
+                  </button>
+                  {expandedSection === 'price' && (
+                    <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
+                      {(result as ParImportResult).price_change_details.map((item: PriceChangeDetail, idx: number) => {
+                        const diff = item.newPrice - item.oldPrice;
+                        const isIncrease = diff > 0;
+                        return (
+                          <div key={idx} className="flex items-center justify-between px-4 py-2.5 bg-white">
+                            <div className="flex-1 min-w-0">
+                              <span className="text-sm font-medium text-slate-900 truncate">{item.name}</span>
+                              <span className="text-xs text-slate-400 ml-2">PLU {item.plu}</span>
+                            </div>
+                            <div className="flex items-center gap-3 flex-shrink-0">
+                              <span className="text-sm text-slate-500">${item.oldPrice.toFixed(2)}</span>
+                              <ArrowRight className="w-3 h-3 text-slate-400" />
+                              <span className="text-sm font-semibold text-slate-900">${item.newPrice.toFixed(2)}</span>
+                              <span className={`text-xs font-medium px-2 py-0.5 rounded ${isIncrease ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                {isIncrease ? '+' : ''}{diff.toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
-              </div>
+              )}
+
+              {/* Expandable New Products */}
+              {(result as ParImportResult).new_product_details?.length > 0 && (
+                <div className="mb-3 border border-slate-200 rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => setExpandedSection(expandedSection === 'new' ? null : 'new')}
+                    className="w-full flex items-center justify-between p-4 bg-blue-50 hover:bg-blue-100 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      {expandedSection === 'new' ? <ChevronDown className="w-4 h-4 text-blue-700" /> : <ChevronRight className="w-4 h-4 text-blue-700" />}
+                      <Plus className="w-4 h-4 text-blue-600" />
+                      <span className="font-medium text-slate-900">New Products</span>
+                      <span className="text-sm text-blue-700">({result.new_products_added})</span>
+                    </div>
+                  </button>
+                  {expandedSection === 'new' && (
+                    <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
+                      {(result as ParImportResult).new_product_details.map((item: NewProductDetail, idx: number) => (
+                        <div key={idx} className="flex items-center justify-between px-4 py-2.5 bg-white">
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-medium text-slate-900 truncate">{item.name}</span>
+                            <span className="text-xs text-slate-400 ml-2">PLU {item.plu}</span>
+                          </div>
+                          <span className="text-sm font-semibold text-slate-900 flex-shrink-0">${item.price.toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Expandable Removed Products */}
+              {(result as ParImportResult).removed_product_details?.length > 0 && (
+                <div className="mb-3 border border-slate-200 rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => setExpandedSection(expandedSection === 'removed' ? null : 'removed')}
+                    className="w-full flex items-center justify-between p-4 bg-red-50 hover:bg-red-100 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      {expandedSection === 'removed' ? <ChevronDown className="w-4 h-4 text-red-700" /> : <ChevronRight className="w-4 h-4 text-red-700" />}
+                      <TrendingDown className="w-4 h-4 text-red-600" />
+                      <span className="font-medium text-slate-900">Removed Products</span>
+                      <span className="text-sm text-red-700">({result.removed_products})</span>
+                    </div>
+                  </button>
+                  {expandedSection === 'removed' && (
+                    <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
+                      {(result as ParImportResult).removed_product_details.map((item: RemovedProductDetail, idx: number) => (
+                        <div key={idx} className="flex items-center justify-between px-4 py-2.5 bg-white">
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-medium text-slate-900 truncate">{item.name}</span>
+                            <span className="text-xs text-slate-400 ml-2">PLU {item.plu}</span>
+                          </div>
+                          <span className="text-sm font-semibold text-slate-500 flex-shrink-0">${item.price.toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Error Details */}
               {result.error_details.length > 0 && (
@@ -297,7 +399,7 @@ export default function DataUploadModal({
               {/* Actions */}
               <div className="flex justify-end gap-3">
                 <button
-                  onClick={() => { setFile(null); setResult(null); }}
+                  onClick={() => { setFile(null); setResult(null); setExpandedSection(null); }}
                   className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg font-medium transition-colors"
                 >
                   Upload Another

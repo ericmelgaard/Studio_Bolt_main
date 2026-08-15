@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { History, CheckCircle, AlertCircle, Clock, Upload, Link2, Server, Package, DollarSign, Minus } from 'lucide-react';
+import { History, CheckCircle, AlertCircle, Clock, Upload, Link2, Server, Plus, DollarSign, TrendingDown } from 'lucide-react';
 import { IntegrationMagicLinkService, UploadHistoryEntry } from '../lib/integrationMagicLinkService';
 
 interface UploadHistoryPanelProps {
@@ -125,11 +125,7 @@ export default function UploadHistoryPanel({ configId }: UploadHistoryPanelProps
               </div>
             </div>
 
-            <div className="grid grid-cols-4 gap-2 pt-3 border-t border-slate-100">
-              <div className="flex flex-col">
-                <div className="text-xs text-slate-500">Rows</div>
-                <div className="text-sm font-semibold text-slate-900 mt-auto">{entry.rows_processed}</div>
-              </div>
+            <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-100">
               <div className="flex flex-col">
                 <div className="text-xs text-slate-500 flex items-center gap-1">
                   <DollarSign className="w-3 h-3" />
@@ -139,17 +135,17 @@ export default function UploadHistoryPanel({ configId }: UploadHistoryPanelProps
               </div>
               <div className="flex flex-col">
                 <div className="text-xs text-slate-500 flex items-center gap-1">
-                  <Package className="w-3 h-3" />
+                  <Plus className="w-3 h-3" />
                   New
                 </div>
                 <div className="text-sm font-semibold text-blue-600 mt-auto">{entry.new_products_added}</div>
               </div>
               <div className="flex flex-col">
                 <div className="text-xs text-slate-500 flex items-center gap-1">
-                  <Minus className="w-3 h-3" />
-                  Unchanged
+                  <TrendingDown className="w-3 h-3" />
+                  Removed
                 </div>
-                <div className="text-sm font-semibold text-slate-400 mt-auto">{entry.products_unchanged ?? 0}</div>
+                <div className="text-sm font-semibold text-red-600 mt-auto">{entry.removed_products ?? 0}</div>
               </div>
             </div>
           </div>

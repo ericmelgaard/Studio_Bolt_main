@@ -8,6 +8,25 @@ export interface ParCsvRow {
   active: boolean;
 }
 
+export interface PriceChangeDetail {
+  plu: string;
+  name: string;
+  oldPrice: number;
+  newPrice: number;
+}
+
+export interface NewProductDetail {
+  plu: string;
+  name: string;
+  price: number;
+}
+
+export interface RemovedProductDetail {
+  plu: string;
+  name: string;
+  price: number;
+}
+
 export interface ParImportResult {
   rows_processed: number;
   rows_succeeded: number;
@@ -16,6 +35,10 @@ export interface ParImportResult {
   new_products_added: number;
   products_unchanged: number;
   price_changes: number;
+  removed_products: number;
+  price_change_details: PriceChangeDetail[];
+  new_product_details: NewProductDetail[];
+  removed_product_details: RemovedProductDetail[];
   error_details: Array<{ row: number; message: string; data?: string }>;
   status: 'success' | 'partial' | 'failed';
 }
@@ -136,6 +159,7 @@ export async function importParFile(
       return {
         rows_processed: 0, rows_succeeded: 0, rows_failed: 0,
         products_updated: 0, new_products_added: 0, products_unchanged: 0, price_changes: 0,
+        removed_products: 0, price_change_details: [], new_product_details: [], removed_product_details: [],
         error_details: [{ row: 0, message: 'Excel file has no sheets' }],
         status: 'failed',
       };
@@ -146,6 +170,7 @@ export async function importParFile(
       return {
         rows_processed: 0, rows_succeeded: 0, rows_failed: 0,
         products_updated: 0, new_products_added: 0, products_unchanged: 0, price_changes: 0,
+        removed_products: 0, price_change_details: [], new_product_details: [], removed_product_details: [],
         error_details: [{ row: 0, message: 'Excel file is empty or has no data rows' }],
         status: 'failed',
       };
@@ -163,18 +188,6 @@ export async function importParCsv(
   csvText: string,
   config: ParImportConfig
 ): Promise<ParImportResult> {
-  const result: ParImportResult = {
-    rows_processed: 0,
-    rows_succeeded: 0,
-    rows_failed: 0,
-    products_updated: 0,
-    new_products_added: 0,
-    products_unchanged: 0,
-    price_changes: 0,
-    error_details: [],
-    status: 'success',
-  };
-
   const { headers, rows } = parseParCsv(csvText);
   return processParRows(headers, rows, config, 'csv');
 }
@@ -193,6 +206,10 @@ async function processParRows(
     new_products_added: 0,
     products_unchanged: 0,
     price_changes: 0,
+    removed_products: 0,
+    price_change_details: [],
+    new_product_details: [],
+    removed_product_details: [],
     error_details: [],
     status: 'success',
   };
@@ -342,6 +359,12 @@ async function processParRows(
 
       if (priceChanged) {
         result.price_changes++;
+        result.price_change_details.push({
+          plu: r.plu,
+          name: r.name,
+          oldPrice,
+          newPrice,
+        });
       }
 
       if (priceChanged || nameChanged || activeChanged) {
@@ -350,6 +373,11 @@ async function processParRows(
         result.products_unchanged++;
       }
     } else {
+      result.new_product_details.push({
+        plu: r.plu,
+        name: r.name,
+        price: Number(r.data.price ?? 0),
+      });
       toInsert.push({
         wand_source_id: wandSourceId,
         external_id: r.plu,
@@ -414,6 +442,29 @@ async function processParRows(
     result.rows_succeeded += succeededInChunk;
   }
 
+  const incomingPlus = new Set(uniqueRows.map(r => r.plu));
+  const allExistingPlus: string[] = [];
+  for (let i = 0; i < plusToFind.length; i += CHUNK_SIZE) {
+    const chunk = plusToFind.slice(i, i + CHUNK_SIZE);
+    const { data: allProducts } = await supabase
+      .from('integration_products')
+      .select('external_id, name, data')
+      .eq('wand_source_id', wandSourceId)
+      .in('external_id', chunk);
+    if (allProducts) {
+      for (const p of allProducts) {
+        if (!incomingPlus.has(String(p.external_id))) {
+          result.removed_products++;
+          result.removed_product_details.push({
+            plu: String(p.external_id),
+            name: p.name,
+            price: Number(p.data?.price ?? 0),
+          });
+        }
+      }
+    }
+  }
+
   result.status = result.rows_failed === 0 ? 'success' : result.rows_succeeded > 0 ? 'partial' : 'failed';
 
   await logParUpload(config, result, fileType);
@@ -436,6 +487,10 @@ async function logParUpload(config: ParImportConfig, result: ParImportResult, fi
       new_products_added: result.new_products_added,
       products_unchanged: result.products_unchanged,
       price_changes: result.price_changes,
+      removed_products: result.removed_products,
+      price_change_details: result.price_change_details,
+      new_product_details: result.new_product_details,
+      removed_product_details: result.removed_product_details,
       error_details: result.error_details,
       status: result.status,
     });

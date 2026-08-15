@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Link2, Mail, KeyRound, UploadCloud, FileSpreadsheet, X, CheckCircle, AlertCircle, Loader, Package, ArrowRight, ShieldCheck, FileJson, DollarSign, Minus } from 'lucide-react';
+import { Link2, Mail, KeyRound, UploadCloud, FileSpreadsheet, X, CheckCircle, AlertCircle, Loader, Plus, ArrowRight, ShieldCheck, FileJson, DollarSign, ChevronDown, ChevronRight, TrendingDown } from 'lucide-react';
 import { IntegrationMagicLinkService } from '../lib/integrationMagicLinkService';
 import { supabase } from '../lib/supabase';
+import { importParFile, type ParImportResult, type PriceChangeDetail, type NewProductDetail, type RemovedProductDetail } from '../lib/parCsvImportService';
 
 interface MagicLinkUploadProps {
   token: string;
@@ -28,8 +29,9 @@ export default function MagicLinkUpload({ token }: MagicLinkUploadProps) {
   // Upload flow
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<ParImportResult | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
 
   useEffect(() => {
     loadLinkInfo();
@@ -132,30 +134,34 @@ export default function MagicLinkUpload({ token }: MagicLinkUploadProps) {
     setUploading(true);
     setResult(null);
 
-    await new Promise(resolve => setTimeout(resolve, 1800));
-
-    const fileType = file.name.toLowerCase().endsWith('.json') ? 'json' : 'csv';
-    const simulated = IntegrationMagicLinkService.simulateUploadResult(file.name, fileType);
-
-    await IntegrationMagicLinkService.logUpload({
-      integration_config_id: configId,
-      source_type: 'magic_link',
-      uploader_email: emailInput,
-      file_name: file.name,
-      file_type: fileType,
-      rows_processed: simulated.rows_processed,
-      rows_succeeded: simulated.rows_succeeded,
-      rows_failed: simulated.rows_failed,
-      products_updated: simulated.products_updated,
-      new_products_added: simulated.new_products_added,
-      products_unchanged: 0,
-      price_changes: 0,
-      error_details: simulated.error_details,
-      status: simulated.status,
-    });
-
-    setResult(simulated);
-    setUploading(false);
+    try {
+      const importResult = await importParFile(file, {
+        configId,
+        wandSourceId: '361c7668-df99-4dc6-ab9b-c169d7918cb2',
+        uploaderEmail: emailInput,
+        sourceType: 'magic_link',
+        fileName: file.name,
+      });
+      setResult(importResult);
+    } catch (error: any) {
+      setResult({
+        rows_processed: 0,
+        rows_succeeded: 0,
+        rows_failed: 0,
+        products_updated: 0,
+        new_products_added: 0,
+        products_unchanged: 0,
+        price_changes: 0,
+        removed_products: 0,
+        price_change_details: [],
+        new_product_details: [],
+        removed_product_details: [],
+        error_details: [{ row: 0, message: error.message || 'Failed to process file' }],
+        status: 'failed',
+      });
+    } finally {
+      setUploading(false);
+    }
   };
 
   // Loading state
@@ -443,39 +449,144 @@ export default function MagicLinkUpload({ token }: MagicLinkUploadProps) {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-4 gap-3">
+                <div className="grid grid-cols-3 gap-3">
                   <div className="bg-white rounded-lg p-4 border border-slate-200 flex flex-col">
-                    <div className="text-xs font-medium text-slate-500 mb-2">Rows Processed</div>
-                    <div className="text-2xl font-bold text-slate-900 mt-auto">{result.rows_processed}</div>
-                  </div>
-                  <div className="bg-white rounded-lg p-4 border border-slate-200 flex flex-col">
-                    <div className="text-xs font-medium text-slate-500 mb-2 flex items-center gap-1">
-                      <DollarSign className="w-3 h-3" />
-                      Price Changes
+                    <div className="flex items-center gap-2 mb-2">
+                      <DollarSign className="w-4 h-4 text-amber-600" />
+                      <span className="text-xs font-medium text-slate-500">Price Changes</span>
                     </div>
                     <div className="text-2xl font-bold text-amber-600 mt-auto">{result.price_changes ?? 0}</div>
                   </div>
                   <div className="bg-white rounded-lg p-4 border border-slate-200 flex flex-col">
-                    <div className="text-xs font-medium text-slate-500 mb-2 flex items-center gap-1">
-                      <Package className="w-3 h-3" />
-                      New Products
+                    <div className="flex items-center gap-2 mb-2">
+                      <Plus className="w-4 h-4 text-blue-600" />
+                      <span className="text-xs font-medium text-slate-500">New Products</span>
                     </div>
                     <div className="text-2xl font-bold text-blue-600 mt-auto">{result.new_products_added}</div>
                   </div>
                   <div className="bg-white rounded-lg p-4 border border-slate-200 flex flex-col">
-                    <div className="text-xs font-medium text-slate-500 mb-2 flex items-center gap-1">
-                      <Minus className="w-3 h-3" />
-                      Unchanged
+                    <div className="flex items-center gap-2 mb-2">
+                      <TrendingDown className="w-4 h-4 text-red-600" />
+                      <span className="text-xs font-medium text-slate-500">Removed</span>
                     </div>
-                    <div className="text-2xl font-bold text-slate-400 mt-auto">{result.products_unchanged ?? 0}</div>
+                    <div className="text-2xl font-bold text-red-600 mt-auto">{result.removed_products ?? 0}</div>
                   </div>
                 </div>
 
-                <div className="mt-3 flex items-center gap-4 text-sm">
-                  <span className="text-green-700 font-medium">{result.rows_succeeded} succeeded</span>
-                  {result.rows_failed > 0 && <span className="text-red-700 font-medium">{result.rows_failed} failed</span>}
-                </div>
+                {(result.price_changes ?? 0) === 0 && (result.new_products_added ?? 0) === 0 && (result.removed_products ?? 0) === 0 && (
+                  <div className="mt-4 flex items-center gap-2 text-sm text-slate-500">
+                    <CheckCircle className="w-4 h-4 text-slate-400" />
+                    <span>No changes detected — all {result.rows_processed} products match existing data.</span>
+                  </div>
+                )}
+
+                {result.rows_failed > 0 && (
+                  <div className="mt-3 flex items-center gap-4 text-sm">
+                    <span className="text-red-700 font-medium">{result.rows_failed} failed</span>
+                  </div>
+                )}
               </div>
+
+              {/* Expandable Price Changes */}
+              {result.price_change_details?.length > 0 && (
+                <div className="mb-3 border border-slate-200 rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => setExpandedSection(expandedSection === 'price' ? null : 'price')}
+                    className="w-full flex items-center justify-between p-4 bg-amber-50 hover:bg-amber-100 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      {expandedSection === 'price' ? <ChevronDown className="w-4 h-4 text-amber-700" /> : <ChevronRight className="w-4 h-4 text-amber-700" />}
+                      <DollarSign className="w-4 h-4 text-amber-600" />
+                      <span className="font-medium text-slate-900">Price Changes</span>
+                      <span className="text-sm text-amber-700">({result.price_changes})</span>
+                    </div>
+                  </button>
+                  {expandedSection === 'price' && (
+                    <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
+                      {result.price_change_details.map((item: PriceChangeDetail, idx: number) => {
+                        const diff = item.newPrice - item.oldPrice;
+                        const isIncrease = diff > 0;
+                        return (
+                          <div key={idx} className="flex items-center justify-between px-4 py-2.5 bg-white">
+                            <div className="flex-1 min-w-0">
+                              <span className="text-sm font-medium text-slate-900 truncate">{item.name}</span>
+                              <span className="text-xs text-slate-400 ml-2">PLU {item.plu}</span>
+                            </div>
+                            <div className="flex items-center gap-3 flex-shrink-0">
+                              <span className="text-sm text-slate-500">${item.oldPrice.toFixed(2)}</span>
+                              <ArrowRight className="w-3 h-3 text-slate-400" />
+                              <span className="text-sm font-semibold text-slate-900">${item.newPrice.toFixed(2)}</span>
+                              <span className={`text-xs font-medium px-2 py-0.5 rounded ${isIncrease ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                {isIncrease ? '+' : ''}{diff.toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Expandable New Products */}
+              {result.new_product_details?.length > 0 && (
+                <div className="mb-3 border border-slate-200 rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => setExpandedSection(expandedSection === 'new' ? null : 'new')}
+                    className="w-full flex items-center justify-between p-4 bg-blue-50 hover:bg-blue-100 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      {expandedSection === 'new' ? <ChevronDown className="w-4 h-4 text-blue-700" /> : <ChevronRight className="w-4 h-4 text-blue-700" />}
+                      <Plus className="w-4 h-4 text-blue-600" />
+                      <span className="font-medium text-slate-900">New Products</span>
+                      <span className="text-sm text-blue-700">({result.new_products_added})</span>
+                    </div>
+                  </button>
+                  {expandedSection === 'new' && (
+                    <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
+                      {result.new_product_details.map((item: NewProductDetail, idx: number) => (
+                        <div key={idx} className="flex items-center justify-between px-4 py-2.5 bg-white">
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-medium text-slate-900 truncate">{item.name}</span>
+                            <span className="text-xs text-slate-400 ml-2">PLU {item.plu}</span>
+                          </div>
+                          <span className="text-sm font-semibold text-slate-900 flex-shrink-0">${item.price.toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Expandable Removed Products */}
+              {result.removed_product_details?.length > 0 && (
+                <div className="mb-3 border border-slate-200 rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => setExpandedSection(expandedSection === 'removed' ? null : 'removed')}
+                    className="w-full flex items-center justify-between p-4 bg-red-50 hover:bg-red-100 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      {expandedSection === 'removed' ? <ChevronDown className="w-4 h-4 text-red-700" /> : <ChevronRight className="w-4 h-4 text-red-700" />}
+                      <TrendingDown className="w-4 h-4 text-red-600" />
+                      <span className="font-medium text-slate-900">Removed Products</span>
+                      <span className="text-sm text-red-700">({result.removed_products})</span>
+                    </div>
+                  </button>
+                  {expandedSection === 'removed' && (
+                    <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
+                      {result.removed_product_details.map((item: RemovedProductDetail, idx: number) => (
+                        <div key={idx} className="flex items-center justify-between px-4 py-2.5 bg-white">
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-medium text-slate-900 truncate">{item.name}</span>
+                            <span className="text-xs text-slate-400 ml-2">PLU {item.plu}</span>
+                          </div>
+                          <span className="text-sm font-semibold text-slate-500 flex-shrink-0">${item.price.toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {result.error_details.length > 0 && (
                 <div className="mb-5">
@@ -496,7 +607,7 @@ export default function MagicLinkUpload({ token }: MagicLinkUploadProps) {
 
               <div className="flex justify-end gap-3">
                 <button
-                  onClick={() => { setFile(null); setResult(null); }}
+                  onClick={() => { setFile(null); setResult(null); setExpandedSection(null); }}
                   className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg font-medium transition-colors"
                 >
                   Upload Another File
