@@ -308,6 +308,3 @@ export default function DataUploadModal({
     </div>
   );
 }
-
-
-export default DataUploadModal
