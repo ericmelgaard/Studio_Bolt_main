@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link2, Mail, KeyRound, UploadCloud, FileSpreadsheet, X, CheckCircle, AlertCircle, Loader, TrendingUp, Package, ArrowRight, ShieldCheck, FileJson, DollarSign, Minus } from 'lucide-react';
+import { Link2, Mail, KeyRound, UploadCloud, FileSpreadsheet, X, CheckCircle, AlertCircle, Loader, Package, ArrowRight, ShieldCheck, FileJson, DollarSign, Minus } from 'lucide-react';
 import { IntegrationMagicLinkService } from '../lib/integrationMagicLinkService';
 import { supabase } from '../lib/supabase';
 
@@ -444,39 +444,32 @@ export default function MagicLinkUpload({ token }: MagicLinkUploadProps) {
                 </div>
 
                 <div className="grid grid-cols-4 gap-3">
-                  <div className="bg-white rounded-lg p-4 border border-slate-200">
-                    <div className="text-xs font-medium text-slate-500 mb-1">Rows Processed</div>
-                    <div className="text-2xl font-bold text-slate-900">{result.rows_processed}</div>
+                  <div className="bg-white rounded-lg p-4 border border-slate-200 flex flex-col">
+                    <div className="text-xs font-medium text-slate-500 mb-2">Rows Processed</div>
+                    <div className="text-2xl font-bold text-slate-900 mt-auto">{result.rows_processed}</div>
                   </div>
-                  <div className="bg-white rounded-lg p-4 border border-slate-200">
-                    <div className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                  <div className="bg-white rounded-lg p-4 border border-slate-200 flex flex-col">
+                    <div className="text-xs font-medium text-slate-500 mb-2 flex items-center gap-1">
                       <DollarSign className="w-3 h-3" />
                       Price Changes
                     </div>
-                    <div className="text-2xl font-bold text-amber-600">{result.price_changes ?? 0}</div>
+                    <div className="text-2xl font-bold text-amber-600 mt-auto">{result.price_changes ?? 0}</div>
                   </div>
-                  <div className="bg-white rounded-lg p-4 border border-slate-200">
-                    <div className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
-                      <TrendingUp className="w-3 h-3" />
-                      Updated
-                    </div>
-                    <div className="text-2xl font-bold text-green-600">{result.products_updated}</div>
-                  </div>
-                  <div className="bg-white rounded-lg p-4 border border-slate-200">
-                    <div className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                  <div className="bg-white rounded-lg p-4 border border-slate-200 flex flex-col">
+                    <div className="text-xs font-medium text-slate-500 mb-2 flex items-center gap-1">
                       <Package className="w-3 h-3" />
                       New Products
                     </div>
-                    <div className="text-2xl font-bold text-blue-600">{result.new_products_added}</div>
+                    <div className="text-2xl font-bold text-blue-600 mt-auto">{result.new_products_added}</div>
+                  </div>
+                  <div className="bg-white rounded-lg p-4 border border-slate-200 flex flex-col">
+                    <div className="text-xs font-medium text-slate-500 mb-2 flex items-center gap-1">
+                      <Minus className="w-3 h-3" />
+                      Unchanged
+                    </div>
+                    <div className="text-2xl font-bold text-slate-400 mt-auto">{result.products_unchanged ?? 0}</div>
                   </div>
                 </div>
-
-                {(result.products_unchanged ?? 0) > 0 && (
-                  <div className="mt-3 flex items-center gap-2 text-sm text-slate-500">
-                    <Minus className="w-4 h-4" />
-                    <span>{result.products_unchanged} products unchanged</span>
-                  </div>
-                )}
 
                 <div className="mt-3 flex items-center gap-4 text-sm">
                   <span className="text-green-700 font-medium">{result.rows_succeeded} succeeded</span>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { History, CheckCircle, AlertCircle, Clock, Upload, Link2, Server, TrendingUp, Package, DollarSign, Minus } from 'lucide-react';
+import { History, CheckCircle, AlertCircle, Clock, Upload, Link2, Server, Package, DollarSign, Minus } from 'lucide-react';
 import { IntegrationMagicLinkService, UploadHistoryEntry } from '../lib/integrationMagicLinkService';
 
 interface UploadHistoryPanelProps {
@@ -125,38 +125,31 @@ export default function UploadHistoryPanel({ configId }: UploadHistoryPanelProps
               </div>
             </div>
 
-            <div className="grid grid-cols-5 gap-2 pt-3 border-t border-slate-100">
-              <div>
+            <div className="grid grid-cols-4 gap-2 pt-3 border-t border-slate-100">
+              <div className="flex flex-col">
                 <div className="text-xs text-slate-500">Rows</div>
-                <div className="text-sm font-semibold text-slate-900">{entry.rows_processed}</div>
+                <div className="text-sm font-semibold text-slate-900 mt-auto">{entry.rows_processed}</div>
               </div>
-              <div>
+              <div className="flex flex-col">
                 <div className="text-xs text-slate-500 flex items-center gap-1">
                   <DollarSign className="w-3 h-3" />
                   Price Changes
                 </div>
-                <div className="text-sm font-semibold text-amber-600">{entry.price_changes ?? 0}</div>
+                <div className="text-sm font-semibold text-amber-600 mt-auto">{entry.price_changes ?? 0}</div>
               </div>
-              <div>
-                <div className="text-xs text-slate-500 flex items-center gap-1">
-                  <TrendingUp className="w-3 h-3" />
-                  Updated
-                </div>
-                <div className="text-sm font-semibold text-green-600">{entry.products_updated}</div>
-              </div>
-              <div>
+              <div className="flex flex-col">
                 <div className="text-xs text-slate-500 flex items-center gap-1">
                   <Package className="w-3 h-3" />
                   New
                 </div>
-                <div className="text-sm font-semibold text-blue-600">{entry.new_products_added}</div>
+                <div className="text-sm font-semibold text-blue-600 mt-auto">{entry.new_products_added}</div>
               </div>
-              <div>
+              <div className="flex flex-col">
                 <div className="text-xs text-slate-500 flex items-center gap-1">
                   <Minus className="w-3 h-3" />
                   Unchanged
                 </div>
-                <div className="text-sm font-semibold text-slate-400">{entry.products_unchanged ?? 0}</div>
+                <div className="text-sm font-semibold text-slate-400 mt-auto">{entry.products_unchanged ?? 0}</div>
               </div>
             </div>
           </div>
