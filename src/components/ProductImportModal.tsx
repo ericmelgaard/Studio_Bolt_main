@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Upload, AlertCircle, Check, Calendar, Clock, FileText, ChevronDown, Link } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { processProductImport } from '../lib/productImportService';
+import { CSV_TEMPLATE_PRESETS, matchCsvTemplate, type CsvTemplatePreset } from '../lib/csvTemplates';
 
 interface ProductImportModalProps {
   isOpen: boolean;
@@ -50,6 +51,8 @@ export default function ProductImportModal({
   const [importing, setImporting] = useState(false);
   const [step, setStep] = useState<'upload' | 'preview' | 'configure'>('upload');
   const [dragActive, setDragActive] = useState(false);
+  const [detectedTemplate, setDetectedTemplate] = useState<CsvTemplatePreset | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('auto');
 
   useEffect(() => {
     if (isOpen) {
@@ -96,6 +99,7 @@ export default function ProductImportModal({
     }
 
     setFile(selectedFile);
+    setDetectedTemplate(null);
   }
 
   async function parseAndPreviewFile() {
@@ -158,6 +162,15 @@ export default function ProductImportModal({
         });
       }
     });
+
+    if (template) {
+      mappings = template.columnMappings.map(m => ({
+        importColumn: m.importColumn,
+        targetField: m.targetField,
+        fieldType: m.fieldType,
+        isTranslation: m.isTranslation,
+      }));
+    }
 
     setDetectedTranslations(Array.from(detectedTranslationLocales));
     setColumnMappings(mappings);
@@ -421,6 +434,22 @@ export default function ProductImportModal({
                 />
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  CSV Template
+                </label>
+                <select
+                  value={selectedTemplateId}
+                  onChange={(e) => setSelectedTemplateId(e.target.value)}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent mb-4"
+                >
+                  <option value="auto">Auto-detect</option>
+                  {CSV_TEMPLATE_PRESETS.map(preset => (
+                    <option key={preset.id} value={preset.id}>{preset.name}</option>
+                  ))}
+                </select>
+              </div>
+
               <div
                 onDragEnter={handleDrag}
                 onDragLeave={handleDrag}
@@ -462,6 +491,16 @@ export default function ProductImportModal({
                     <p className="text-xs text-green-700 mt-1">
                       {file.name} ({(file.size / 1024).toFixed(1)} KB)
                     </p>
+                  </div>
+                </div>
+              )}
+
+              {detectedTemplate && step === 'preview' && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-2">
+                  <Check className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-blue-900">{detectedTemplate.name} template detected</p>
+                    <p className="text-xs text-blue-700 mt-0.5">{detectedTemplate.description}</p>
                   </div>
                 </div>
               )}
