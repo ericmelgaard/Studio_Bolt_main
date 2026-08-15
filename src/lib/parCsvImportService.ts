@@ -278,7 +278,13 @@ async function processParRows(
     return result;
   }
 
-  const plusToFind = validRows.map(r => r.plu);
+  const dedupedRows = new Map<string, ParsedRow>();
+  for (const r of validRows) {
+    dedupedRows.set(r.plu, r);
+  }
+  const uniqueRows = Array.from(dedupedRows.values());
+
+  const plusToFind = uniqueRows.map(r => r.plu);
   const existingMap = new Map<string, string>();
 
   const CHUNK_SIZE = 200;
@@ -300,7 +306,7 @@ async function processParRows(
   const toInsert: any[] = [];
   const toUpdate: { id: string; name: string; data: Record<string, any> }[] = [];
 
-  for (const r of validRows) {
+  for (const r of uniqueRows) {
     const existingId = existingMap.get(r.plu);
     if (existingId) {
       toUpdate.push({ id: existingId, name: r.name, data: r.data });
