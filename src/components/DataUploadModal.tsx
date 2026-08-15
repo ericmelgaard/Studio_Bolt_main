@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { UploadCloud, FileSpreadsheet, FileJson, X, CheckCircle, AlertCircle, TrendingUp, Package, Loader } from 'lucide-react';
 import { IntegrationMagicLinkService, SimulatedUploadResult } from '../lib/integrationMagicLinkService';
-import { importParCsv, type ParImportResult } from '../lib/parCsvImportService';
+import { importParFile, type ParImportResult } from '../lib/parCsvImportService';
 
 interface DataUploadModalProps {
   isOpen: boolean;
@@ -67,8 +67,7 @@ export default function DataUploadModal({
     setResult(null);
 
     try {
-      const csvText = await file.text();
-      const importResult = await importParCsv(csvText, {
+      const importResult = await importParFile(file, {
         configId,
         wandSourceId: '361c7668-df99-4dc6-ab9b-c169d7918cb2',
         uploaderEmail,

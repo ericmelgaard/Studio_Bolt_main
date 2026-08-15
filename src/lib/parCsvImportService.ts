@@ -1,3 +1,4 @@
+import * as XLSX from 'xlsx';
 import { supabase } from './supabase';
 
 export interface ParCsvRow {
@@ -119,6 +120,43 @@ function parsePrice(value: string): number {
   return isNaN(parsed) ? 0 : parsed;
 }
 
+export async function importParFile(
+  file: File,
+  config: ParImportConfig
+): Promise<ParImportResult> {
+  const isExcel = file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls');
+
+  if (isExcel) {
+    const arrayBuffer = await file.arrayBuffer();
+    const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+    const firstSheetName = workbook.SheetNames[0];
+    if (!firstSheetName) {
+      return {
+        rows_processed: 0, rows_succeeded: 0, rows_failed: 0,
+        products_updated: 0, new_products_added: 0,
+        error_details: [{ row: 0, message: 'Excel file has no sheets' }],
+        status: 'failed',
+      };
+    }
+    const sheet = workbook.Sheets[firstSheetName];
+    const jsonRows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { header: 1, raw: false });
+    if (jsonRows.length < 2) {
+      return {
+        rows_processed: 0, rows_succeeded: 0, rows_failed: 0,
+        products_updated: 0, new_products_added: 0,
+        error_details: [{ row: 0, message: 'Excel file is empty or has no data rows' }],
+        status: 'failed',
+      };
+    }
+    const headers = (jsonRows[0] as any[]).map((h: any) => String(h || '').trim());
+    const rows = jsonRows.slice(1).map(r => (r as any[]).map((c: any) => String(c ?? '')));
+    return processParRows(headers, rows, config, 'xlsx');
+  }
+
+  const csvText = await file.text();
+  return importParCsv(csvText, config);
+}
+
 export async function importParCsv(
   csvText: string,
   config: ParImportConfig
@@ -134,10 +172,28 @@ export async function importParCsv(
   };
 
   const { headers, rows } = parseParCsv(csvText);
+  return processParRows(headers, rows, config, 'csv');
+}
+
+async function processParRows(
+  headers: string[],
+  rows: string[][],
+  config: ParImportConfig,
+  fileType: string
+): Promise<ParImportResult> {
+  const result: ParImportResult = {
+    rows_processed: 0,
+    rows_succeeded: 0,
+    rows_failed: 0,
+    products_updated: 0,
+    new_products_added: 0,
+    error_details: [],
+    status: 'success',
+  };
 
   if (headers.length === 0 || rows.length === 0) {
     result.status = 'failed';
-    result.error_details.push({ row: 0, message: 'CSV file is empty or has no data rows' });
+    result.error_details.push({ row: 0, message: 'File is empty or has no data rows' });
     return result;
   }
 
@@ -145,13 +201,13 @@ export async function importParCsv(
 
   if (fieldMap.name === undefined) {
     result.status = 'failed';
-    result.error_details.push({ row: 0, message: 'Could not find item name column (expected "Item/Combo" or "Item Name")' });
+    result.error_details.push({ row: 0, message: `Could not find item name column. Headers found: ${headers.join(', ')}` });
     return result;
   }
 
   if (fieldMap.plu === undefined) {
     result.status = 'failed';
-    result.error_details.push({ row: 0, message: 'Could not find PLU column (expected "PLU" or "Item Number")' });
+    result.error_details.push({ row: 0, message: `Could not find PLU column. Headers found: ${headers.join(', ')}` });
     return result;
   }
 
@@ -248,19 +304,19 @@ export async function importParCsv(
 
   result.status = result.rows_failed === 0 ? 'success' : result.rows_succeeded > 0 ? 'partial' : 'failed';
 
-  await logParUpload(config, result);
+  await logParUpload(config, result, fileType);
 
   return result;
 }
 
-async function logParUpload(config: ParImportConfig, result: ParImportResult): Promise<void> {
+async function logParUpload(config: ParImportConfig, result: ParImportResult, fileType: string): Promise<void> {
   try {
     await supabase.from('integration_upload_history').insert({
       integration_config_id: config.configId,
       source_type: config.sourceType || 'in_app',
       uploader_email: config.uploaderEmail || null,
       file_name: config.fileName,
-      file_type: 'csv',
+      file_type: fileType,
       rows_processed: result.rows_processed,
       rows_succeeded: result.rows_succeeded,
       rows_failed: result.rows_failed,
