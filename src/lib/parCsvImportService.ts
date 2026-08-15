@@ -109,13 +109,13 @@ function mapHeadersToParFields(headers: string[]): Record<string, number> {
   return mapping;
 }
 
-function parseBoolean(value: string): boolean {
-  const normalized = value.trim().toUpperCase();
+function parseBoolean(value: string | undefined | null): boolean {
+  const normalized = (value ?? '').trim().toUpperCase();
   return normalized === 'TRUE' || normalized === '1' || normalized === 'YES' || normalized === 'T';
 }
 
-function parsePrice(value: string): number {
-  const cleaned = value.replace(/[$,]/g, '').trim();
+function parsePrice(value: string | undefined | null): number {
+  const cleaned = (value ?? '').replace(/[$,]/g, '').trim();
   const parsed = parseFloat(cleaned);
   return isNaN(parsed) ? 0 : parsed;
 }
