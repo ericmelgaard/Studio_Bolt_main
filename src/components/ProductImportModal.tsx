@@ -295,7 +295,12 @@ export default function ProductImportModal({
     }
 
     if (!rowData.id && !rowData.product_id) {
-      messages.push('No product ID - will create new product');
+      const hasPlu = rowData['PLU'] || rowData.plu;
+      if (hasPlu) {
+        messages.push('Will match existing product by PLU or create new');
+      } else {
+        messages.push('No product ID - will create new product');
+      }
       hasWarning = true;
     }
 

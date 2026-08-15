@@ -135,6 +135,16 @@ async function processRow(
     existingProduct = data;
   }
 
+  if (!existingProduct && attributes.plu) {
+    const { data } = await supabase
+      .from('products')
+      .select('*')
+      .eq('attributes->>plu', String(attributes.plu))
+      .maybeSingle();
+
+    existingProduct = data;
+  }
+
   const publicationDate = row.publicationDate ||
     (config.publicationMode === 'scheduled' ? config.scheduledPublishAt : null);
 
