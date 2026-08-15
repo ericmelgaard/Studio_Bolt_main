@@ -231,7 +231,6 @@ async function processParRows(
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    result.rows_processed++;
 
     try {
       const name = row[fieldMap.name] || '';
@@ -244,8 +243,10 @@ async function processParRows(
       }
 
       if (!plu.trim()) {
-        continue;
+        throw new Error('Missing PLU');
       }
+
+      result.rows_processed++;
 
       const data: Record<string, any> = {
         price,
