@@ -328,20 +328,23 @@ async function processParRows(
     const existingId = existingMap.get(r.plu);
     if (existingId) {
       const existing = existingDataMap.get(r.plu);
-      const oldPrice = existing?.data?.price ?? 0;
-      const newPrice = r.data.price ?? 0;
+      const oldPrice = Number(existing?.data?.price ?? 0);
+      const newPrice = Number(r.data.price ?? 0);
       const oldName = existing?.name ?? '';
       const newName = r.name;
+      const oldActive = existing?.data?.isActive;
+      const newActive = r.data.isActive;
 
-      const dataChanged = !existing ||
-        JSON.stringify(existing.data) !== JSON.stringify(r.data) ||
-        oldName !== newName;
+      const priceChanged = oldPrice !== newPrice;
+      const nameChanged = oldName !== newName;
+      const activeChanged = oldActive !== newActive;
 
-      if (dataChanged) {
+      if (priceChanged) {
+        result.price_changes++;
+      }
+
+      if (priceChanged || nameChanged || activeChanged) {
         toUpdate.push({ id: existingId, name: r.name, data: r.data });
-        if (oldPrice !== newPrice) {
-          result.price_changes++;
-        }
       } else {
         result.products_unchanged++;
       }
