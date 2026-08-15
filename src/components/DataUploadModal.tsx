@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { UploadCloud, FileSpreadsheet, FileJson, X, CheckCircle, AlertCircle, Package, Loader, DollarSign, ChevronDown, ChevronRight, Plus, TrendingDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { UploadCloud, FileSpreadsheet, FileJson, X, CheckCircle, AlertCircle, Package, Loader, DollarSign, ChevronDown, ChevronRight, Plus, TrendingDown, ArrowRight } from 'lucide-react';
 import { IntegrationMagicLinkService, SimulatedUploadResult } from '../lib/integrationMagicLinkService';
 import { importParFile, type ParImportResult, type PriceChangeDetail, type NewProductDetail, type RemovedProductDetail } from '../lib/parCsvImportService';
 
@@ -86,9 +86,13 @@ export default function DataUploadModal({
         new_products_added: 0,
         products_unchanged: 0,
         price_changes: 0,
+        removed_products: 0,
+        price_change_details: [],
+        new_product_details: [],
+        removed_product_details: [],
         error_details: [{ row: 0, message: error.message || 'Failed to process file' }],
         status: 'failed',
-      });
+      } as ParImportResult);
     } finally {
       setUploading(false);
     }
@@ -418,3 +422,5 @@ export default function DataUploadModal({
     </div>
   );
 }
+
+export default DataUploadModal
