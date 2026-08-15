@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Database, Server, Calendar, Clock, Zap, Link, CreditCard as Edit2, Trash2, ToggleLeft, ToggleRight, Send, ChevronDown, ChevronRight, MapPin, RefreshCw, Check, AlertCircle, Link2, Upload, History as HistoryIcon, X } from 'lucide-react';
+import { Plus, Database, Server, Calendar, Clock, Zap, Link, CreditCard as Edit2, Trash2, ToggleLeft, ToggleRight, Send, ChevronDown, ChevronRight, MapPin, RefreshCw, Check, AlertCircle, Link2, Upload, History as HistoryIcon, X, ShieldAlert, Power } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import AddWandIntegrationModal from '../components/AddWandIntegrationModal';
 import EditWandIntegrationModal from '../components/EditWandIntegrationModal';
@@ -80,6 +80,7 @@ export default function IntegrationAccess() {
   const [locationDetails, setLocationDetails] = useState<Record<string, any>>({});
   const [activeTab, setActiveTab] = useState<Record<string, 'magic-link' | 'upload-history'>>({});
   const [showUploadModal, setShowUploadModal] = useState<string | null>(null);
+  const [removalConfirmId, setRemovalConfirmId] = useState<string | null>(null);
 
   const hasLocation = location.concept || location.company || location.store;
 
@@ -259,6 +260,45 @@ export default function IntegrationAccess() {
         )
       );
     }
+  };
+
+  const handleRemoveConfig = async (configId: string) => {
+    const config = sourceConfigs.find(c => c.id === configId);
+    if (!config) return;
+
+    const levelLabel = config.application_level === 'concept'
+      ? 'this concept'
+      : config.application_level === 'company'
+        ? 'this company'
+        : 'this site';
+
+    if (!confirm(
+      `Remove "${config.config_name}" from ${levelLabel}?\n\n` +
+      `This will remove the integration configuration from ${levelLabel}. ` +
+      `The integration template itself will remain available and can be re-added later.\n\n` +
+      `Type OK to confirm.`
+    )) {
+      setRemovalConfirmId(null);
+      return;
+    }
+
+    const { error } = await supabase
+      .from('integration_source_configs')
+      .delete()
+      .eq('id', configId);
+
+    if (error) {
+      console.error('Failed to remove configuration:', error);
+      alert(`Failed to remove configuration: ${error.message}`);
+    } else {
+      setSourceConfigs(prev => prev.filter(c => c.id !== configId));
+      setExpandedSources(prev => {
+        const next = { ...prev };
+        delete next[configId];
+        return next;
+      });
+    }
+    setRemovalConfirmId(null);
   };
 
   const formatLastSync = (timestamp: string | null) => {
@@ -457,17 +497,6 @@ export default function IntegrationAccess() {
 
                     <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
                       <button
-                        onClick={() => handleToggleActive(config.id, config.is_active)}
-                        className={`p-1.5 rounded-lg transition-colors ${
-                          config.is_active ? 'hover:bg-green-100' : 'hover:bg-slate-200'
-                        }`}
-                        title={config.is_active ? 'Deactivate' : 'Activate'}
-                      >
-                        {config.is_active
-                          ? <ToggleRight className="w-5 h-5 text-green-600" />
-                          : <ToggleLeft className="w-5 h-5 text-slate-400" />}
-                      </button>
-                      <button
                         onClick={() => {
                           setEditingConfigId(config.id);
                           setShowEditModal(true);
@@ -491,9 +520,6 @@ export default function IntegrationAccess() {
                       >
                         <Upload className="w-4 h-4" />
                         Upload
-                      </button>
-                      <button className="p-1.5 hover:bg-red-50 rounded-lg transition-colors">
-                        <Trash2 className="w-4 h-4 text-red-500" />
                       </button>
                       <div className="ml-1">
                         {isExpanded
@@ -629,6 +655,76 @@ export default function IntegrationAccess() {
                       {activeTab[config.id] === 'upload-history' && (
                         <UploadHistoryPanel configId={config.id} />
                       )}
+                    </div>
+
+                    {/* Status & Removal Settings */}
+                    <div className="px-5 py-4 border-t border-slate-100 bg-slate-50">
+                      <div className="flex items-center gap-2 mb-3">
+                        <ShieldAlert className="w-4 h-4 text-slate-400" />
+                        <h4 className="text-sm font-semibold text-slate-700">Status & Removal</h4>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        {/* Activation control */}
+                        <div className="bg-white rounded-lg border border-slate-200 p-4">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Power className="w-4 h-4 text-slate-500" />
+                            <span className="text-sm font-medium text-slate-900">Integration Status</span>
+                          </div>
+                          <p className="text-xs text-slate-500 mb-3 leading-relaxed">
+                            {config.is_active
+                              ? 'This integration is currently active and syncing data. Deactivating will pause all automatic syncs and data imports until reactivated.'
+                              : 'This integration is currently inactive. No data will be synced or imported until it is activated. All configuration will be preserved.'}
+                          </p>
+                          <button
+                            onClick={() => handleToggleActive(config.id, config.is_active)}
+                            className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                              config.is_active
+                                ? 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                                : 'bg-green-600 text-white hover:bg-green-700'
+                            }`}
+                          >
+                            {config.is_active
+                              ? <><ToggleLeft className="w-4 h-4" /> Deactivate Integration</>
+                              : <><ToggleRight className="w-4 h-4" /> Activate Integration</>}
+                          </button>
+                        </div>
+
+                        {/* Removal control */}
+                        <div className="bg-white rounded-lg border border-amber-200 p-4">
+                          <div className="flex items-center gap-2 mb-2">
+                            <ShieldAlert className="w-4 h-4 text-amber-500" />
+                            <span className="text-sm font-medium text-slate-900">Remove from {config.application_level}</span>
+                          </div>
+                          <p className="text-xs text-slate-500 mb-3 leading-relaxed">
+                            Removes this integration configuration from the current {config.application_level}. The integration template remains available and can be re-added later. This action cannot be undone.
+                          </p>
+                          {removalConfirmId === config.id ? (
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleRemoveConfig(config.id)}
+                                className="flex-1 px-3 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors"
+                              >
+                                Confirm Removal
+                              </button>
+                              <button
+                                onClick={() => setRemovalConfirmId(null)}
+                                className="flex-1 px-3 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setRemovalConfirmId(config.id)}
+                              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-amber-50 text-amber-700 rounded-lg text-sm font-medium hover:bg-amber-100 transition-colors border border-amber-200"
+                            >
+                              <ShieldAlert className="w-4 h-4" />
+                              Remove Integration
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
