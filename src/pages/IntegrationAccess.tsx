@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Database, FileSpreadsheet, FileJson, Server, Calendar, Clock, Zap, Link, CreditCard as Edit2, Trash2, ToggleLeft, ToggleRight, Send, ChevronDown, ChevronRight, MapPin, RefreshCw, Check, AlertCircle, Link2, Upload, History as HistoryIcon } from 'lucide-react';
+import { Plus, Database, Server, Calendar, Clock, Zap, Link, CreditCard as Edit2, Trash2, ToggleLeft, ToggleRight, Send, ChevronDown, ChevronRight, MapPin, RefreshCw, Check, AlertCircle, Link2, Upload, History as HistoryIcon, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import AddWandIntegrationModal from '../components/AddWandIntegrationModal';
 import EditWandIntegrationModal from '../components/EditWandIntegrationModal';
@@ -57,29 +57,11 @@ const mockDestinations: IntegrationDestination[] = [
   }
 ];
 
-const SOURCE_TYPES = [
-  { value: 'api', label: 'REST API', icon: Database, color: 'blue' },
-  { value: 'spreadsheet', label: 'Spreadsheet', icon: FileSpreadsheet, color: 'green' },
-  { value: 'json', label: 'JSON File', icon: FileJson, color: 'purple' },
-  { value: 'ftp', label: 'FTP Server', icon: Server, color: 'orange' }
-];
-
 const DESTINATION_TYPES = [
   { value: 'api', label: 'REST API', icon: Database, color: 'blue' },
   { value: 'webhook', label: 'Webhook', icon: Zap, color: 'purple' },
   { value: 'ftp', label: 'FTP Server', icon: Server, color: 'orange' },
   { value: 'database', label: 'Database', icon: Database, color: 'green' }
-];
-
-const SYNC_FREQUENCIES = [
-  { value: 'realtime', label: 'Real-time (Webhooks)' },
-  { value: '5min', label: 'Every 5 minutes' },
-  { value: '15min', label: 'Every 15 minutes' },
-  { value: '30min', label: 'Every 30 minutes' },
-  { value: '1hour', label: 'Every hour' },
-  { value: '6hours', label: 'Every 6 hours' },
-  { value: 'daily', label: 'Daily' },
-  { value: 'manual', label: 'Manual only' }
 ];
 
 export default function IntegrationAccess() {
@@ -91,7 +73,9 @@ export default function IntegrationAccess() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingConfigId, setEditingConfigId] = useState<string | null>(null);
   const [showAddDestinationModal, setShowAddDestinationModal] = useState(false);
+  const [selectedDestType, setSelectedDestType] = useState<string>('api');
   const [expandedDestinations, setExpandedDestinations] = useState<Record<string, boolean>>({});
+  const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
   const [syncingConfigs, setSyncingConfigs] = useState<Set<string>>(new Set());
   const [locationDetails, setLocationDetails] = useState<Record<string, any>>({});
   const [activeTab, setActiveTab] = useState<Record<string, 'magic-link' | 'upload-history'>>({});
@@ -104,6 +88,14 @@ export default function IntegrationAccess() {
   }, [location]);
 
   useEffect(() => {
+    // Auto-expand active configs, collapse inactive ones
+    const expanded: Record<string, boolean> = {};
+    sourceConfigs.forEach(config => {
+      if (config.is_active) {
+        expanded[config.id] = true;
+      }
+    });
+    setExpandedSources(prev => ({ ...expanded, ...prev }));
     // Load location details for all Qu configs
     sourceConfigs.forEach(config => {
       if (config.wand_integration_sources?.integration_type === 'qu' && config.config_params?.establishment) {
@@ -280,16 +272,6 @@ export default function IntegrationAccess() {
     return date.toLocaleDateString();
   };
 
-  function getSourceIcon(type: string) {
-    const sourceType = SOURCE_TYPES.find(t => t.value === type);
-    return sourceType?.icon || Database;
-  }
-
-  function getSourceColor(type: string) {
-    const sourceType = SOURCE_TYPES.find(t => t.value === type);
-    return sourceType?.color || 'blue';
-  }
-
   function getDestinationIcon(type: string) {
     const destType = DESTINATION_TYPES.find(t => t.value === type);
     return destType?.icon || Database;
@@ -302,6 +284,13 @@ export default function IntegrationAccess() {
 
   function toggleDestinationExpand(id: string) {
     setExpandedDestinations(prev => ({
+      ...prev,
+      [id]: !prev[id]
+    }));
+  }
+
+  function toggleSourceExpand(id: string) {
+    setExpandedSources(prev => ({
       ...prev,
       [id]: !prev[id]
     }));
@@ -404,105 +393,94 @@ export default function IntegrationAccess() {
             <p className="text-sm text-slate-500">Click "Add Source" to configure a preset integration source</p>
           </div>
         ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {sourceConfigs.map(config => {
-            const Icon = Database;
-            const color = 'blue';
+            const isExpanded = expandedSources[config.id];
+            const isConfigured = config.config_params && Object.keys(config.config_params).length > 0;
+            const configLabel = config.application_level === 'concept'
+              ? (isConfigured ? 'Catalog Source Configured' : 'Not Configured')
+              : (isConfigured ? 'Fully Configured' : 'Missing API Configuration');
 
             return (
-              <div key={config.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-start gap-4">
-                      <div className={`p-3 bg-${color}-100 rounded-lg`}>
-                        <Icon className={`w-6 h-6 text-${color}-600`} />
+              <div key={config.id} className={`bg-white rounded-xl shadow-sm border overflow-hidden transition-all ${
+                isExpanded ? 'border-blue-200 shadow-md' : 'border-slate-200'
+              }`}>
+                {/* Collapsed Header - always visible */}
+                <div
+                  className="px-5 py-4 cursor-pointer hover:bg-slate-50 transition-colors"
+                  onClick={() => toggleSourceExpand(config.id)}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className={`p-2.5 rounded-lg flex-shrink-0 ${
+                        config.is_active ? 'bg-blue-100' : 'bg-slate-100'
+                      }`}>
+                        <Database className={`w-5 h-5 ${config.is_active ? 'text-blue-600' : 'text-slate-400'}`} />
                       </div>
-                      <div>
-                        <h3 className="text-lg font-semibold text-slate-900 mb-1">{config.config_name}</h3>
-                        <div className="flex items-center gap-4 text-sm text-slate-500">
-                          <span className="flex items-center gap-1">
-                            <Database className="w-4 h-4" />
-                            {config.wand_integration_sources?.name || 'Unknown'}
-                          </span>
-                          <span className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-base font-semibold text-slate-900 truncate">{config.config_name}</h3>
+                          {config.is_active ? (
+                            <span className="flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-medium flex-shrink-0">
+                              <ToggleRight className="w-3 h-3" />
+                              Active
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-500 rounded text-xs font-medium flex-shrink-0">
+                              <ToggleLeft className="w-3 h-3" />
+                              Inactive
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1 text-sm text-slate-500">
+                          <span className="truncate">{config.wand_integration_sources?.name || 'Unknown'}</span>
+                          <span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded flex-shrink-0">
                             {config.wand_integration_sources?.integration_type}
                           </span>
-                        </div>
-                        <div className="flex items-center gap-2 mt-2 flex-wrap">
-                          <span className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded font-medium">
+                          <span className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded font-medium flex-shrink-0">
                             {config.application_level.toUpperCase()}
                           </span>
-                          {config.application_level === 'concept' && (
-                            <>
-                              {config.config_params && Object.keys(config.config_params).length > 0 ? (
-                                <span className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded font-medium flex items-center gap-1">
-                                  <Check className="w-3 h-3" />
-                                  Catalog Source Configured
-                                </span>
-                              ) : (
-                                <span className="text-xs px-2 py-1 bg-amber-50 text-amber-700 rounded font-medium flex items-center gap-1">
-                                  <AlertCircle className="w-3 h-3" />
-                                  Not Configured
-                                </span>
-                              )}
-                            </>
-                          )}
-                          {(config.application_level === 'site' || config.application_level === 'company') && (
-                            <>
-                              {config.config_params && Object.keys(config.config_params).length > 0 ? (
-                                <span className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded font-medium flex items-center gap-1">
-                                  <Check className="w-3 h-3" />
-                                  Fully Configured
-                                </span>
-                              ) : (
-                                <span className="text-xs px-2 py-1 bg-amber-50 text-amber-700 rounded font-medium flex items-center gap-1">
-                                  <AlertCircle className="w-3 h-3" />
-                                  Missing API Configuration
-                                </span>
-                              )}
-                            </>
-                          )}
-                          {config.wand_integration_sources?.integration_type === 'qu' && config.config_params?.brand && (
-                            <span className="text-xs px-2 py-1 bg-slate-100 text-slate-700 rounded font-medium">
-                              Brand: {config.config_params.brand}
+                          {isConfigured ? (
+                            <span className="flex items-center gap-0.5 text-xs text-green-600 font-medium flex-shrink-0">
+                              <Check className="w-3 h-3" />
+                              {configLabel}
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-0.5 text-xs text-amber-600 font-medium flex-shrink-0">
+                              <AlertCircle className="w-3 h-3" />
+                              {configLabel}
                             </span>
                           )}
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      {config.is_active ? (
-                        <button
-                          onClick={() => handleToggleActive(config.id, config.is_active)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-green-100 text-green-700 rounded-lg text-sm font-medium hover:bg-green-200 transition-colors"
-                        >
-                          <ToggleRight className="w-4 h-4" />
-                          Active
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleToggleActive(config.id, config.is_active)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors"
-                        >
-                          <ToggleLeft className="w-4 h-4" />
-                          Inactive
-                        </button>
-                      )}
+                    <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                      <button
+                        onClick={() => handleToggleActive(config.id, config.is_active)}
+                        className={`p-1.5 rounded-lg transition-colors ${
+                          config.is_active ? 'hover:bg-green-100' : 'hover:bg-slate-200'
+                        }`}
+                        title={config.is_active ? 'Deactivate' : 'Activate'}
+                      >
+                        {config.is_active
+                          ? <ToggleRight className="w-5 h-5 text-green-600" />
+                          : <ToggleLeft className="w-5 h-5 text-slate-400" />}
+                      </button>
                       <button
                         onClick={() => {
                           setEditingConfigId(config.id);
                           setShowEditModal(true);
                         }}
-                        className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                        className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
                         title="Edit configuration"
                       >
-                        <Edit2 className="w-4 h-4 text-slate-600" />
+                        <Edit2 className="w-4 h-4 text-slate-500" />
                       </button>
                       <button
                         onClick={() => handleManualSync(config.id)}
                         disabled={!config.is_active || syncingConfigs.has(config.id)}
-                        className="p-2 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="p-1.5 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         title={config.is_active ? 'Sync now' : 'Activate to sync'}
                       >
                         <RefreshCw className={`w-4 h-4 text-blue-600 ${syncingConfigs.has(config.id) ? 'animate-spin' : ''}`} />
@@ -512,147 +490,148 @@ export default function IntegrationAccess() {
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors"
                       >
                         <Upload className="w-4 h-4" />
-                        Upload Data
+                        Upload
                       </button>
-                      <button className="p-2 hover:bg-red-50 rounded-lg transition-colors">
-                        <Trash2 className="w-4 h-4 text-red-600" />
+                      <button className="p-1.5 hover:bg-red-50 rounded-lg transition-colors">
+                        <Trash2 className="w-4 h-4 text-red-500" />
                       </button>
-                    </div>
-                  </div>
-
-                  {config.wand_integration_sources?.integration_type === 'qu' ? (
-                    <div className="grid grid-cols-4 gap-4 pt-4 border-t border-slate-100">
-                      {/* Assigned Establishment - Prominent Display */}
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-emerald-50 rounded-lg">
-                          <MapPin className="w-4 h-4 text-emerald-600" />
-                        </div>
-                        <div>
-                          <div className="text-xs text-slate-500 font-medium">Assigned Establishment</div>
-                          {config.config_params?.establishment && locationDetails[config.config_params.establishment] ? (
-                            <div className="text-sm font-semibold text-slate-900">
-                              {locationDetails[config.config_params.establishment].name}
-                              <div className="text-xs font-normal text-slate-600 mt-0.5">
-                                {locationDetails[config.config_params.establishment].city}, {locationDetails[config.config_params.establishment].state_code}
-                              </div>
-                            </div>
-                          ) : config.config_params?.establishment ? (
-                            <div className="text-sm font-medium text-slate-900">
-                              ID: {config.config_params.establishment}
-                              <div className="text-xs text-slate-500 mt-0.5">Loading details...</div>
-                            </div>
-                          ) : (
-                            <div className="text-sm font-medium text-slate-500">Not configured</div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Sync Frequency */}
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-blue-50 rounded-lg">
-                          <Zap className="w-4 h-4 text-blue-600" />
-                        </div>
-                        <div>
-                          <div className="text-xs text-slate-500 font-medium">Sync Frequency</div>
-                          <div className="text-sm font-semibold text-slate-900">
-                            {config.sync_frequency_minutes ? `Every ${config.sync_frequency_minutes} min` : 'Not configured'}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Last Sync */}
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-purple-50 rounded-lg">
-                          <Clock className="w-4 h-4 text-purple-600" />
-                        </div>
-                        <div>
-                          <div className="text-xs text-slate-500 font-medium">Last Sync</div>
-                          <div className="text-sm font-semibold text-slate-900">{formatLastSync(config.last_sync_at)}</div>
-                        </div>
-                      </div>
-
-                      {/* Schedule */}
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-green-50 rounded-lg">
-                          <Calendar className="w-4 h-4 text-green-600" />
-                        </div>
-                        <div>
-                          <div className="text-xs text-slate-500 font-medium">Schedule</div>
-                          <div className="text-sm font-semibold text-slate-900">{config.sync_schedule || 'Manual'}</div>
-                        </div>
+                      <div className="ml-1">
+                        {isExpanded
+                          ? <ChevronDown className="w-5 h-5 text-slate-400" />
+                          : <ChevronRight className="w-5 h-5 text-slate-400" />}
                       </div>
                     </div>
-                  ) : (
-                    <div className="grid grid-cols-3 gap-4 pt-4 border-t border-slate-100">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-blue-50 rounded-lg">
-                          <Zap className="w-4 h-4 text-blue-600" />
-                        </div>
-                        <div>
-                          <div className="text-xs text-slate-500">Sync Frequency</div>
-                          <div className="text-sm font-medium text-slate-900">
-                            {config.sync_frequency_minutes ? `Every ${config.sync_frequency_minutes} min` : 'Not configured'}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-purple-50 rounded-lg">
-                          <Clock className="w-4 h-4 text-purple-600" />
-                        </div>
-                        <div>
-                          <div className="text-xs text-slate-500">Last Sync</div>
-                          <div className="text-sm font-medium text-slate-900">{formatLastSync(config.last_sync_at)}</div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-green-50 rounded-lg">
-                          <Calendar className="w-4 h-4 text-green-600" />
-                        </div>
-                        <div>
-                          <div className="text-xs text-slate-500">Schedule</div>
-                          <div className="text-sm font-medium text-slate-900">{config.sync_schedule || 'Manual'}</div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Data Source Tabs */}
-                  <div className="mt-4 border-t border-slate-100 pt-4">
-                    <div className="flex items-center gap-1 mb-4">
-                      <button
-                        onClick={() => setActiveTab(prev => ({ ...prev, [config.id]: 'magic-link' }))}
-                        className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                          (activeTab[config.id] || 'magic-link') === 'magic-link'
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'text-slate-500 hover:bg-slate-100'
-                        }`}
-                      >
-                        <Link2 className="w-4 h-4" />
-                        Magic Link & Endpoint
-                      </button>
-                      <button
-                        onClick={() => setActiveTab(prev => ({ ...prev, [config.id]: 'upload-history' }))}
-                        className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                          activeTab[config.id] === 'upload-history'
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'text-slate-500 hover:bg-slate-100'
-                        }`}
-                      >
-                        <HistoryIcon className="w-4 h-4" />
-                        Upload History
-                      </button>
-                    </div>
-
-                    {(activeTab[config.id] || 'magic-link') === 'magic-link' && (
-                      <MagicLinkManager configId={config.id} />
-                    )}
-                    {activeTab[config.id] === 'upload-history' && (
-                      <UploadHistoryPanel configId={config.id} />
-                    )}
                   </div>
                 </div>
+
+                {/* Expanded Content - only when expanded */}
+                {isExpanded && (
+                  <div className="border-t border-slate-100">
+                    {config.wand_integration_sources?.integration_type === 'qu' ? (
+                      <div className="grid grid-cols-4 gap-4 px-5 py-4 bg-slate-50">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-emerald-50 rounded-lg">
+                            <MapPin className="w-4 h-4 text-emerald-600" />
+                          </div>
+                          <div>
+                            <div className="text-xs text-slate-500 font-medium">Assigned Establishment</div>
+                            {config.config_params?.establishment && locationDetails[config.config_params.establishment] ? (
+                              <div className="text-sm font-semibold text-slate-900">
+                                {locationDetails[config.config_params.establishment].name}
+                                <div className="text-xs font-normal text-slate-600 mt-0.5">
+                                  {locationDetails[config.config_params.establishment].city}, {locationDetails[config.config_params.establishment].state_code}
+                                </div>
+                              </div>
+                            ) : config.config_params?.establishment ? (
+                              <div className="text-sm font-medium text-slate-900">
+                                ID: {config.config_params.establishment}
+                                <div className="text-xs text-slate-500 mt-0.5">Loading details...</div>
+                              </div>
+                            ) : (
+                              <div className="text-sm font-medium text-slate-500">Not configured</div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-blue-50 rounded-lg">
+                            <Zap className="w-4 h-4 text-blue-600" />
+                          </div>
+                          <div>
+                            <div className="text-xs text-slate-500 font-medium">Sync Frequency</div>
+                            <div className="text-sm font-semibold text-slate-900">
+                              {config.sync_frequency_minutes ? `Every ${config.sync_frequency_minutes} min` : 'Not configured'}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-purple-50 rounded-lg">
+                            <Clock className="w-4 h-4 text-purple-600" />
+                          </div>
+                          <div>
+                            <div className="text-xs text-slate-500 font-medium">Last Sync</div>
+                            <div className="text-sm font-semibold text-slate-900">{formatLastSync(config.last_sync_at)}</div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-green-50 rounded-lg">
+                            <Calendar className="w-4 h-4 text-green-600" />
+                          </div>
+                          <div>
+                            <div className="text-xs text-slate-500 font-medium">Schedule</div>
+                            <div className="text-sm font-semibold text-slate-900">{config.sync_schedule || 'Manual'}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-4 px-5 py-4 bg-slate-50">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-blue-50 rounded-lg">
+                            <Zap className="w-4 h-4 text-blue-600" />
+                          </div>
+                          <div>
+                            <div className="text-xs text-slate-500">Sync Frequency</div>
+                            <div className="text-sm font-medium text-slate-900">
+                              {config.sync_frequency_minutes ? `Every ${config.sync_frequency_minutes} min` : 'Not configured'}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-purple-50 rounded-lg">
+                            <Clock className="w-4 h-4 text-purple-600" />
+                          </div>
+                          <div>
+                            <div className="text-xs text-slate-500">Last Sync</div>
+                            <div className="text-sm font-medium text-slate-900">{formatLastSync(config.last_sync_at)}</div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-green-50 rounded-lg">
+                            <Calendar className="w-4 h-4 text-green-600" />
+                          </div>
+                          <div>
+                            <div className="text-xs text-slate-500">Schedule</div>
+                            <div className="text-sm font-medium text-slate-900">{config.sync_schedule || 'Manual'}</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Data Source Tabs */}
+                    <div className="px-5 py-4">
+                      <div className="flex items-center gap-1 mb-4">
+                        <button
+                          onClick={() => setActiveTab(prev => ({ ...prev, [config.id]: 'magic-link' }))}
+                          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            (activeTab[config.id] || 'magic-link') === 'magic-link'
+                              ? 'bg-blue-100 text-blue-700'
+                              : 'text-slate-500 hover:bg-slate-100'
+                          }`}
+                        >
+                          <Link2 className="w-4 h-4" />
+                          Magic Link & Endpoint
+                        </button>
+                        <button
+                          onClick={() => setActiveTab(prev => ({ ...prev, [config.id]: 'upload-history' }))}
+                          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            activeTab[config.id] === 'upload-history'
+                              ? 'bg-blue-100 text-blue-700'
+                              : 'text-slate-500 hover:bg-slate-100'
+                          }`}
+                        >
+                          <HistoryIcon className="w-4 h-4" />
+                          Upload History
+                        </button>
+                      </div>
+
+                      {(activeTab[config.id] || 'magic-link') === 'magic-link' && (
+                        <MagicLinkManager configId={config.id} />
+                      )}
+                      {activeTab[config.id] === 'upload-history' && (
+                        <UploadHistoryPanel configId={config.id} />
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -884,169 +863,6 @@ export default function IntegrationAccess() {
         />
       )}
 
-      {/* OLD MODAL PLACEHOLDER - Delete everything from here to Add Destination Modal */}
-      {false && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-              <h2 className="text-xl font-bold text-slate-900">OLD MODAL</h2>
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-6">
-              {/* Source Type Selection */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-3">Source Type</label>
-                <div className="grid grid-cols-2 gap-3">
-                  {SOURCE_TYPES.map(type => {
-                    const Icon = type.icon;
-                    const isSelected = selectedType === type.value;
-                    return (
-                      <button
-                        key={type.value}
-                        onClick={() => setSelectedType(type.value)}
-                        className={`p-4 border-2 rounded-lg transition-all ${
-                          isSelected
-                            ? `border-${type.color}-500 bg-${type.color}-50`
-                            : 'border-slate-200 hover:border-slate-300'
-                        }`}
-                      >
-                        <Icon className={`w-6 h-6 mb-2 ${isSelected ? `text-${type.color}-600` : 'text-slate-400'}`} />
-                        <div className={`font-medium ${isSelected ? `text-${type.color}-900` : 'text-slate-700'}`}>
-                          {type.label}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Configuration based on type */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Source Name</label>
-                <input
-                  type="text"
-                  placeholder="e.g., Production POS System"
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-
-              {selectedType === 'api' && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">API Endpoint</label>
-                    <input
-                      type="url"
-                      placeholder="https://api.example.com/v1"
-                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">API Key</label>
-                    <input
-                      type="password"
-                      placeholder="••••••••••••••••"
-                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-                </>
-              )}
-
-              {selectedType === 'ftp' && (
-                <>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">Server Address</label>
-                      <input
-                        type="text"
-                        placeholder="ftp.example.com"
-                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">Port</label>
-                      <input
-                        type="number"
-                        placeholder="21"
-                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">Username</label>
-                      <input
-                        type="text"
-                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">Password</label>
-                      <input
-                        type="password"
-                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">File Path</label>
-                    <input
-                      type="text"
-                      placeholder="/data/products.csv"
-                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-                </>
-              )}
-
-              {(selectedType === 'spreadsheet' || selectedType === 'json') && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">File Upload</label>
-                  <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-slate-400 transition-colors cursor-pointer">
-                    <FileSpreadsheet className="w-12 h-12 text-slate-400 mx-auto mb-3" />
-                    <p className="text-sm text-slate-600">Click to upload or drag and drop</p>
-                    <p className="text-xs text-slate-500 mt-1">
-                      {selectedType === 'spreadsheet' ? 'CSV, XLSX, XLS files' : 'JSON files'}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Sync Frequency</label>
-                <select className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                  {SYNC_FREQUENCIES.map(freq => (
-                    <option key={freq.value} value={freq.value}>{freq.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input type="checkbox" id="active" className="w-4 h-4 text-blue-600 rounded" defaultChecked />
-                <label htmlFor="active" className="text-sm text-slate-700">Activate immediately after creation</label>
-              </div>
-            </div>
-
-            <div className="border-t border-slate-200 px-6 py-4 flex justify-end gap-3">
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg font-medium transition-colors"
-              >
-                Cancel
-              </button>
-              <button className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">
-                Create Source
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Add Destination Modal */}
       {showAddDestinationModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -1231,13 +1047,5 @@ export default function IntegrationAccess() {
         </div>
       )}
     </div>
-  );
-}
-
-function X({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-    </svg>
   );
 }
