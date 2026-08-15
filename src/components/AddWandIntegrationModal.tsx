@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Database, AlertCircle, ChevronRight, Sparkles, Wrench, FileSpreadsheet, FileJson, Server, Tag, Plus, Lock, Unlock } from 'lucide-react';
+import { X, Database, AlertCircle, ChevronRight, Sparkles, Wrench, FileSpreadsheet, FileJson, Server, Tag, Plus, Lock, Unlock, CheckCircle, Upload, Link2, Zap } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useBrandOptions } from '../hooks/useBrandOptions';
 
@@ -185,6 +185,9 @@ export default function AddWandIntegrationModal({ onClose, onSuccess, conceptId,
       updatedConfigParams.brand = configForm.selectedBrand;
     }
 
+    const isWandManaged = selectedSource.metadata?.managed_by === 'wand';
+    const hasPresetMappings = !!selectedSource.metadata?.preset_mappings;
+
     const { error: saveError } = await supabase
       .from('integration_source_configs')
       .insert({
@@ -196,11 +199,14 @@ export default function AddWandIntegrationModal({ onClose, onSuccess, conceptId,
         site_id: storeId || null,
         config_params: updatedConfigParams,
         credentials: configForm.credentials,
-        sync_frequency_minutes: configForm.syncFrequency,
-        sync_schedule: configForm.syncSchedule,
+        sync_frequency_minutes: isWandManaged ? null : configForm.syncFrequency,
+        sync_schedule: isWandManaged ? 'Manual' : configForm.syncSchedule,
         brand_options: configForm.localBrandOptions.length > 0 ? configForm.localBrandOptions : null,
         is_brand_inherited: configForm.isBrandInherited,
         brand_locked: configForm.brandLocked,
+        is_wand_managed: isWandManaged,
+        has_preset_mappings: hasPresetMappings,
+        mapping_status: hasPresetMappings ? 'completed' : 'not_started',
         is_active: false
       });
 
@@ -336,7 +342,10 @@ export default function AddWandIntegrationModal({ onClose, onSuccess, conceptId,
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[500px] overflow-y-auto">
-                  {filteredSources.map(source => (
+                  {filteredSources.map(source => {
+                    const isWandManaged = source.metadata?.managed_by === 'wand';
+                    const SourceIcon = source.integration_type === 'par_csv' || source.integration_type === 'csv' ? FileSpreadsheet : Database;
+                    return (
                     <button
                       key={source.id}
                       onClick={() => handleSelectSource(source)}
@@ -344,11 +353,16 @@ export default function AddWandIntegrationModal({ onClose, onSuccess, conceptId,
                     >
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex items-start gap-3 flex-1">
-                          <div className="p-2 bg-blue-100 rounded-lg">
-                            <Database className="w-5 h-5 text-blue-600" />
+                          <div className={`p-2 rounded-lg ${isWandManaged ? 'bg-green-100' : 'bg-blue-100'}`}>
+                            <SourceIcon className={`w-5 h-5 ${isWandManaged ? 'text-green-600' : 'text-blue-600'}`} />
                           </div>
                           <div className="flex-1">
-                            <h3 className="font-semibold text-slate-900">{source.name}</h3>
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-semibold text-slate-900">{source.name}</h3>
+                              {isWandManaged && (
+                                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Preset</span>
+                              )}
+                            </div>
                             <span className="text-xs font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
                               {source.integration_type}
                             </span>
@@ -357,14 +371,115 @@ export default function AddWandIntegrationModal({ onClose, onSuccess, conceptId,
                         <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-blue-600" />
                       </div>
                       <p className="text-sm text-slate-600 line-clamp-2">{source.description}</p>
+                      {isWandManaged && (
+                        <div className="mt-2 flex items-center gap-1.5 text-xs text-green-600 font-medium">
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          Ready to use — no configuration needed
+                        </div>
+                      )}
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </>
           )}
 
           {step === 'wand-configure' && selectedSource && (
+            selectedSource.metadata?.managed_by === 'wand' ? (
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Configuration Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={configForm.configName}
+                    onChange={(e) => setConfigForm({ ...configForm, configName: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="e.g., PAR Export - Main Location"
+                  />
+                </div>
+
+                <div className="bg-green-50 border border-green-200 rounded-lg p-5">
+                  <div className="flex items-center gap-3 mb-4">
+                    <CheckCircle className="w-6 h-6 text-green-600" />
+                    <div>
+                      <h3 className="font-semibold text-green-900">Pre-Built and Ready</h3>
+                      <p className="text-sm text-green-700">This preset integration comes fully configured with field mappings.</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-start gap-3 bg-white rounded-lg p-3 border border-green-100">
+                      <div className="p-2 bg-green-100 rounded-lg">
+                        <FileSpreadsheet className="w-4 h-4 text-green-600" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium text-slate-900">CSV Upload Source</div>
+                        <div className="text-xs text-slate-500">Users export CSV from PAR POS, then upload via magic link, in-app, or automated endpoint</div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-3 bg-white rounded-lg p-3 border border-green-100">
+                      <div className="p-2 bg-blue-100 rounded-lg">
+                        <Database className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium text-slate-900">Field Mappings Pre-Configured</div>
+                        <div className="text-xs text-slate-500">
+                          {Object.keys(selectedSource.metadata?.csv_column_mappings || selectedSource.metadata?.mappings || {}).length} columns mapped to WAND product attributes
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {Object.entries(selectedSource.metadata?.csv_column_mappings || selectedSource.metadata?.mappings || {}).slice(0, 6).map(([source, target]) => (
+                            <span key={source} className="inline-flex items-center gap-1 text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded">
+                              <span className="font-mono">{source}</span>
+                              <ChevronRight className="w-3 h-3 text-slate-400" />
+                              <span className="font-medium text-slate-700">{target}</span>
+                            </span>
+                          ))}
+                          {Object.keys(selectedSource.metadata?.csv_column_mappings || selectedSource.metadata?.mappings || {}).length > 6 && (
+                            <span className="text-xs text-slate-500 px-2 py-1">+{Object.keys(selectedSource.metadata?.csv_column_mappings || selectedSource.metadata?.mappings || {}).length - 6} more</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-3 bg-white rounded-lg p-3 border border-green-100">
+                      <div className="p-2 bg-purple-100 rounded-lg">
+                        <Link2 className="w-4 h-4 text-purple-600" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium text-slate-900">3 Upload Methods Available</div>
+                        <div className="text-xs text-slate-500">Set up after adding: Magic Link, In-App Upload, Automated Endpoint</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <p className="text-sm text-blue-800">
+                    <strong>What happens next:</strong> After adding this source, you'll be able to generate a magic link for external users to upload CSV files, upload data directly from within the app, or set up an automated endpoint for software-driven uploads. No sync frequency or schedule needed — uploads happen on demand whenever a CSV is available.
+                  </p>
+                </div>
+
+                <div className="border-t border-slate-200 pt-4 flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg font-medium transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+                  >
+                    {saving ? 'Adding...' : 'Add Source'}
+                  </button>
+                </div>
+              </form>
+            ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Configuration Name</label>
@@ -654,6 +769,7 @@ export default function AddWandIntegrationModal({ onClose, onSuccess, conceptId,
                 </button>
               </div>
             </form>
+            )
           )}
 
           {step === 'custom' && (
