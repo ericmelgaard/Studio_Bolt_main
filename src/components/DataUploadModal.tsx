@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { UploadCloud, FileSpreadsheet, FileJson, X, CheckCircle, AlertCircle, TrendingUp, Package, Loader } from 'lucide-react';
 import { IntegrationMagicLinkService, SimulatedUploadResult } from '../lib/integrationMagicLinkService';
+import { importParCsv, type ParImportResult } from '../lib/parCsvImportService';
 
 interface DataUploadModalProps {
   isOpen: boolean;
@@ -21,7 +22,7 @@ export default function DataUploadModal({
 }: DataUploadModalProps) {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [result, setResult] = useState<SimulatedUploadResult | null>(null);
+  const [result, setResult] = useState<SimulatedUploadResult | ParImportResult | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -65,28 +66,30 @@ export default function DataUploadModal({
     setUploading(true);
     setResult(null);
 
-    await new Promise(resolve => setTimeout(resolve, 1800));
+    try {
+      const csvText = await file.text();
+      const importResult = await importParCsv(csvText, {
+        configId,
+        wandSourceId: '361c7668-df99-4dc6-ab9b-c169d7918cb2',
+        uploaderEmail,
+        sourceType,
+        fileName: file.name,
+      });
 
-    const fileType = file.name.toLowerCase().endsWith('.json') ? 'json' : 'csv';
-    const simulated = IntegrationMagicLinkService.simulateUploadResult(file.name, fileType);
-
-    await IntegrationMagicLinkService.logUpload({
-      integration_config_id: configId,
-      source_type: sourceType,
-      uploader_email: uploaderEmail,
-      file_name: file.name,
-      file_type: fileType,
-      rows_processed: simulated.rows_processed,
-      rows_succeeded: simulated.rows_succeeded,
-      rows_failed: simulated.rows_failed,
-      products_updated: simulated.products_updated,
-      new_products_added: simulated.new_products_added,
-      error_details: simulated.error_details,
-      status: simulated.status,
-    });
-
-    setResult(simulated);
-    setUploading(false);
+      setResult(importResult);
+    } catch (error: any) {
+      setResult({
+        rows_processed: 0,
+        rows_succeeded: 0,
+        rows_failed: 0,
+        products_updated: 0,
+        new_products_added: 0,
+        error_details: [{ row: 0, message: error.message || 'Failed to process file' }],
+        status: 'failed',
+      });
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleClose = () => {
@@ -305,3 +308,6 @@ export default function DataUploadModal({
     </div>
   );
 }
+
+
+export default DataUploadModal
