@@ -238,7 +238,7 @@ async function processParRows(
       }
 
       if (!plu.trim()) {
-        throw new Error('Missing PLU');
+        continue;
       }
 
       const data: Record<string, any> = {
