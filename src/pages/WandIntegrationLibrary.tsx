@@ -75,7 +75,7 @@ export default function WandIntegrationLibrary({ onBack, onApplyConfig }: WandIn
   return (
     <div className="max-w-7xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-slate-900 mb-2">WAND Integration Library</h1>
+        <h1 className="text-3xl font-bold text-slate-900 mb-2">Preset Integration Library</h1>
         <p className="text-slate-600">
           Browse available integration sources at the WAND level. Apply configurations to concepts, companies, or sites.
         </p>
@@ -185,9 +185,9 @@ export default function WandIntegrationLibrary({ onBack, onApplyConfig }: WandIn
         <div className="flex items-start gap-3">
           <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
           <div>
-            <h3 className="font-semibold text-blue-900 mb-2">About WAND Integration Library</h3>
+            <h3 className="font-semibold text-blue-900 mb-2">About Preset Integration Library</h3>
             <p className="text-sm text-blue-800 mb-3">
-              The WAND Integration Library contains all available integration sources at the WAND level (global templates).
+              The Preset Integration Library contains all available integration sources at the WAND level (global templates).
               To use an integration, you need to apply it to a specific concept, company, or site with appropriate configuration.
             </p>
             <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">

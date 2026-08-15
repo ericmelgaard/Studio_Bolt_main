@@ -222,7 +222,7 @@ export default function AddWandIntegrationModal({ onClose, onSuccess, conceptId,
   const getTitle = () => {
     switch (step) {
       case 'choice': return 'Add Integration Source';
-      case 'wand-select': return 'Select WAND Integration';
+      case 'wand-select': return 'Select Preset Integration';
       case 'wand-configure': return `Configure ${selectedSource?.name}`;
       case 'custom': return 'Create Custom Integration';
       default: return 'Add Integration Source';
@@ -274,7 +274,7 @@ export default function AddWandIntegrationModal({ onClose, onSuccess, conceptId,
                     <Sparkles className="w-8 h-8 text-blue-600" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-slate-900">WAND Integration</h3>
+                    <h3 className="text-lg font-bold text-slate-900">Preset Integration</h3>
                     <p className="text-sm text-slate-500">Pre-configured sources</p>
                   </div>
                 </div>

@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Plus, Database, FileSpreadsheet, FileJson, Server, Calendar, Clock, Zap, Link, Edit2, Trash2, ToggleLeft, ToggleRight, Send, ChevronDown, ChevronRight, MapPin, Eye, RefreshCw, Check, AlertCircle } from 'lucide-react';
+import { Plus, Database, FileSpreadsheet, FileJson, Server, Calendar, Clock, Zap, Link, CreditCard as Edit2, Trash2, ToggleLeft, ToggleRight, Send, ChevronDown, ChevronRight, MapPin, RefreshCw, Check, AlertCircle, Link2, Upload, History as HistoryIcon } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import AddWandIntegrationModal from '../components/AddWandIntegrationModal';
 import EditWandIntegrationModal from '../components/EditWandIntegrationModal';
 import LocationRequired from '../components/LocationRequired';
+import MagicLinkManager from '../components/MagicLinkManager';
+import DataUploadModal from '../components/DataUploadModal';
+import UploadHistoryPanel from '../components/UploadHistoryPanel';
 import { useLocation } from '../hooks/useLocation';
 
 interface IntegrationSourceConfig {
@@ -91,6 +94,8 @@ export default function IntegrationAccess() {
   const [expandedDestinations, setExpandedDestinations] = useState<Record<string, boolean>>({});
   const [syncingConfigs, setSyncingConfigs] = useState<Set<string>>(new Set());
   const [locationDetails, setLocationDetails] = useState<Record<string, any>>({});
+  const [activeTab, setActiveTab] = useState<Record<string, 'magic-link' | 'upload-history'>>({});
+  const [showUploadModal, setShowUploadModal] = useState<string | null>(null);
 
   const hasLocation = location.concept || location.company || location.store;
 
@@ -396,7 +401,7 @@ export default function IntegrationAccess() {
           <div className="text-center py-12 bg-white rounded-lg border border-slate-200">
             <Database className="w-12 h-12 text-slate-300 mx-auto mb-3" />
             <p className="text-slate-600 mb-2">No integration source configurations</p>
-            <p className="text-sm text-slate-500">Click "Add Source" to configure a WAND integration source</p>
+            <p className="text-sm text-slate-500">Click "Add Source" to configure a preset integration source</p>
           </div>
         ) : (
         <div className="space-y-4">
@@ -502,6 +507,13 @@ export default function IntegrationAccess() {
                       >
                         <RefreshCw className={`w-4 h-4 text-blue-600 ${syncingConfigs.has(config.id) ? 'animate-spin' : ''}`} />
                       </button>
+                      <button
+                        onClick={() => setShowUploadModal(config.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors"
+                      >
+                        <Upload className="w-4 h-4" />
+                        Upload Data
+                      </button>
                       <button className="p-2 hover:bg-red-50 rounded-lg transition-colors">
                         <Trash2 className="w-4 h-4 text-red-600" />
                       </button>
@@ -605,6 +617,41 @@ export default function IntegrationAccess() {
                       </div>
                     </div>
                   )}
+
+                  {/* Data Source Tabs */}
+                  <div className="mt-4 border-t border-slate-100 pt-4">
+                    <div className="flex items-center gap-1 mb-4">
+                      <button
+                        onClick={() => setActiveTab(prev => ({ ...prev, [config.id]: 'magic-link' }))}
+                        className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          (activeTab[config.id] || 'magic-link') === 'magic-link'
+                            ? 'bg-blue-100 text-blue-700'
+                            : 'text-slate-500 hover:bg-slate-100'
+                        }`}
+                      >
+                        <Link2 className="w-4 h-4" />
+                        Magic Link & Endpoint
+                      </button>
+                      <button
+                        onClick={() => setActiveTab(prev => ({ ...prev, [config.id]: 'upload-history' }))}
+                        className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          activeTab[config.id] === 'upload-history'
+                            ? 'bg-blue-100 text-blue-700'
+                            : 'text-slate-500 hover:bg-slate-100'
+                        }`}
+                      >
+                        <HistoryIcon className="w-4 h-4" />
+                        Upload History
+                      </button>
+                    </div>
+
+                    {(activeTab[config.id] || 'magic-link') === 'magic-link' && (
+                      <MagicLinkManager configId={config.id} />
+                    )}
+                    {activeTab[config.id] === 'upload-history' && (
+                      <UploadHistoryPanel configId={config.id} />
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -616,7 +663,7 @@ export default function IntegrationAccess() {
         <div className="mt-8 p-6 bg-blue-50 border border-blue-200 rounded-xl">
           <h3 className="font-semibold text-blue-900 mb-2">About Integration Access</h3>
           <p className="text-sm text-blue-800 mb-3">
-            Configure how your system connects to external data sources. Each source can be configured with different sync frequencies and schedules to optimize performance and data freshness.
+            Configure how your system connects to external data sources. Use preset integrations like PAR POS for instant setup with pre-built mappings, or create custom integrations with your own field mappings. Each source supports magic links for external uploads, automated endpoints for software-driven updates, and in-app uploads for logged-in users.
           </p>
           <div className="grid grid-cols-2 gap-4 text-sm text-blue-800">
             <div>
@@ -824,6 +871,16 @@ export default function IntegrationAccess() {
             setEditingConfigId(null);
             loadSourceConfigs();
           }}
+        />
+      )}
+
+      {showUploadModal && (
+        <DataUploadModal
+          isOpen={true}
+          onClose={() => setShowUploadModal(null)}
+          configId={showUploadModal}
+          configName={sourceConfigs.find(c => c.id === showUploadModal)?.config_name || 'Integration'}
+          sourceType="in_app"
         />
       )}
 

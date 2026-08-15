@@ -7,6 +7,7 @@ import { useUser } from './hooks/useUser';
 const CreatorDashboard = lazy(() => import('./pages/CreatorDashboard'));
 const OperatorDashboard = lazy(() => import('./pages/OperatorDashboard'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
+const MagicLinkUpload = lazy(() => import('./pages/MagicLinkUpload'));
 
 type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -90,6 +91,15 @@ function App() {
 
   if (loading) {
     return <LoadingFallback />;
+  }
+
+  const uploadMatch = window.location.pathname.match(/^\/upload\/(.+)$/);
+  if (uploadMatch) {
+    return (
+      <Suspense fallback={<LoadingFallback />}>
+        <MagicLinkUpload token={uploadMatch[1]} />
+      </Suspense>
+    );
   }
 
   if (showAuthForm && !user && selectedRole) {
