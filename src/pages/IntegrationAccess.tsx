@@ -24,6 +24,7 @@ interface IntegrationSourceConfig {
   last_sync_at: string | null;
   created_at: string;
   updated_at: string;
+  priority: number | null;
   wand_integration_sources?: {
     name: string;
     integration_type: string;
@@ -142,8 +143,8 @@ export default function IntegrationAccess() {
       });
 
       setSourceConfigs(filteredConfigs.sort((a, b) => {
-        const pa = a.wand_integration_sources?.priority ?? 99;
-        const pb = b.wand_integration_sources?.priority ?? 99;
+        const pa = a.priority ?? a.wand_integration_sources?.priority ?? 99;
+        const pb = b.priority ?? b.wand_integration_sources?.priority ?? 99;
         return pa - pb;
       }));
     }
@@ -442,6 +443,8 @@ export default function IntegrationAccess() {
         <div className="space-y-3">
           {sourceConfigs.map(config => {
             const isExpanded = expandedSources[config.id];
+            const effectivePriority = config.priority ?? config.wand_integration_sources?.priority ?? 99;
+            const isPriorityOverridden = config.priority !== null && config.priority !== undefined;
             const requiredFields = config.wand_integration_sources?.required_config_fields ?? [];
             const missingFields = requiredFields.filter(f => {
               const val = config.config_params?.[f];
@@ -491,11 +494,9 @@ export default function IntegrationAccess() {
                           <span className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded font-medium flex-shrink-0">
                             {config.application_level.toUpperCase()}
                           </span>
-                          {config.wand_integration_sources?.priority !== undefined && (
-                            <span className="flex items-center gap-0.5 text-xs px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded font-medium flex-shrink-0" title="Priority when multiple sources are active - lower number wins">
-                              P{config.wand_integration_sources.priority}
-                            </span>
-                          )}
+                          <span className="flex items-center gap-0.5 text-xs px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded font-medium flex-shrink-0" title={isPriorityOverridden ? `Overridden at ${config.application_level} level (template default: ${config.wand_integration_sources?.priority})` : `Template default priority`}>
+                            P{effectivePriority}{isPriorityOverridden && ' *'}
+                          </span>
                           {isConfigured ? (
                             <span className="flex items-center gap-0.5 text-xs text-green-600 font-medium flex-shrink-0">
                               <Check className="w-3 h-3" />
@@ -581,11 +582,13 @@ export default function IntegrationAccess() {
                           <div>
                             <div className="text-xs text-slate-500 font-medium">Priority</div>
                             <div className="text-sm font-semibold text-slate-900">
-                              {config.wand_integration_sources?.priority ?? 'N/A'}
+                              {effectivePriority}
                               <div className="text-xs font-normal text-slate-600 mt-0.5">
-                                {config.wand_integration_sources?.priority === 1
-                                  ? 'Highest'
-                                  : 'Lower = wins'}
+                                {isPriorityOverridden
+                                  ? `Override (default: ${config.wand_integration_sources?.priority ?? 'N/A'})`
+                                  : effectivePriority === 1
+                                    ? 'Highest'
+                                    : 'Lower = wins'}
                               </div>
                             </div>
                           </div>
@@ -629,11 +632,13 @@ export default function IntegrationAccess() {
                           <div>
                             <div className="text-xs text-slate-500 font-medium">Priority</div>
                             <div className="text-sm font-semibold text-slate-900">
-                              {config.wand_integration_sources?.priority ?? 'N/A'}
+                              {effectivePriority}
                               <div className="text-xs font-normal text-slate-600 mt-0.5">
-                                {config.wand_integration_sources?.priority === 1
-                                  ? 'Highest'
-                                  : 'Lower = wins'}
+                                {isPriorityOverridden
+                                  ? `Override (default: ${config.wand_integration_sources?.priority ?? 'N/A'})`
+                                  : effectivePriority === 1
+                                    ? 'Highest'
+                                    : 'Lower = wins'}
                               </div>
                             </div>
                           </div>

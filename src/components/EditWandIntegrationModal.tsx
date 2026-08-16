@@ -19,6 +19,7 @@ interface WandIntegrationSource {
   supports_modifiers: boolean;
   supports_discounts: boolean;
   status: string;
+  priority: number;
 }
 
 interface IntegrationSourceConfig {
@@ -34,6 +35,7 @@ interface IntegrationSourceConfig {
   sync_frequency_minutes: number | null;
   sync_schedule: string | null;
   is_active: boolean;
+  priority: number | null;
   wand_integration_sources?: WandIntegrationSource;
 }
 
@@ -55,12 +57,14 @@ export default function EditWandIntegrationModal({ configId, onClose, onSuccess 
     credentials: Record<string, string>;
     syncFrequency: number;
     syncSchedule: string;
+    priority: number | null;
   }>({
     configName: '',
     configParams: {},
     credentials: {},
     syncFrequency: 15,
-    syncSchedule: 'Manual'
+    syncSchedule: 'Manual',
+    priority: null
   });
 
   const [showQuLocationPicker, setShowQuLocationPicker] = useState(false);
@@ -101,7 +105,8 @@ export default function EditWandIntegrationModal({ configId, onClose, onSuccess 
         configParams: data.config_params || {},
         credentials: data.credentials || {},
         syncFrequency: data.sync_frequency_minutes || 15,
-        syncSchedule: data.sync_schedule || 'Manual'
+        syncSchedule: data.sync_schedule || 'Manual',
+        priority: data.priority ?? null
       });
     }
     setLoading(false);
@@ -184,6 +189,7 @@ export default function EditWandIntegrationModal({ configId, onClose, onSuccess 
         sync_frequency_minutes: configForm.syncFrequency,
         sync_schedule: configForm.syncSchedule,
         is_active: shouldBeActive,
+        priority: configForm.priority,
         updated_at: new Date().toISOString()
       })
       .eq('id', configId);
@@ -417,6 +423,44 @@ export default function EditWandIntegrationModal({ configId, onClose, onSuccess 
                     <option value="Weekends only">Weekends only</option>
                     <option value="Night hours only">Night hours only</option>
                   </select>
+                </div>
+              </div>
+
+              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-semibold text-indigo-900">Data Priority</h3>
+                  <span className="text-xs text-indigo-600">
+                    Template default: {source.priority}
+                  </span>
+                </div>
+                <p className="text-sm text-indigo-800 mb-3">
+                  When multiple integrations are active, lower priority numbers win. If a higher-priority source maps an attribute (like name or price), it overrides lower-priority sources for that attribute.
+                </p>
+                <div className="flex items-center gap-3">
+                  <label className="text-sm font-medium text-slate-700 whitespace-nowrap">Priority override</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={configForm.priority ?? ''}
+                    onChange={(e) => {
+                      const val = e.target.value.trim();
+                      setConfigForm({ ...configForm, priority: val === '' ? null : parseInt(val) });
+                    }}
+                    className="w-24 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    placeholder={String(source.priority)}
+                  />
+                  {configForm.priority !== null && (
+                    <button
+                      type="button"
+                      onClick={() => setConfigForm({ ...configForm, priority: null })}
+                      className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+                    >
+                      Reset to template default
+                    </button>
+                  )}
+                  {configForm.priority === null && (
+                    <span className="text-xs text-slate-500">Using template default ({source.priority})</span>
+                  )}
                 </div>
               </div>
 
