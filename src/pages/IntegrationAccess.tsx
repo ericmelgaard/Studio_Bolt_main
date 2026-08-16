@@ -29,6 +29,7 @@ interface IntegrationSourceConfig {
     integration_type: string;
     description: string;
     required_config_fields: string[];
+    priority: number;
   };
 }
 
@@ -117,7 +118,8 @@ export default function IntegrationAccess() {
           name,
           integration_type,
           description,
-          required_config_fields
+          required_config_fields,
+          priority
         )
       `)
       .order('config_name');
@@ -139,7 +141,11 @@ export default function IntegrationAccess() {
         return false;
       });
 
-      setSourceConfigs(filteredConfigs);
+      setSourceConfigs(filteredConfigs.sort((a, b) => {
+        const pa = a.wand_integration_sources?.priority ?? 99;
+        const pb = b.wand_integration_sources?.priority ?? 99;
+        return pa - pb;
+      }));
     }
     setLoading(false);
   };
@@ -485,6 +491,11 @@ export default function IntegrationAccess() {
                           <span className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded font-medium flex-shrink-0">
                             {config.application_level.toUpperCase()}
                           </span>
+                          {config.wand_integration_sources?.priority !== undefined && (
+                            <span className="flex items-center gap-0.5 text-xs px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded font-medium flex-shrink-0" title="Priority when multiple sources are active - lower number wins">
+                              P{config.wand_integration_sources.priority}
+                            </span>
+                          )}
                           {isConfigured ? (
                             <span className="flex items-center gap-0.5 text-xs text-green-600 font-medium flex-shrink-0">
                               <Check className="w-3 h-3" />
@@ -539,7 +550,7 @@ export default function IntegrationAccess() {
                 {isExpanded && (
                   <div className="border-t border-slate-100">
                     {config.wand_integration_sources?.integration_type === 'qu' ? (
-                      <div className="grid grid-cols-4 gap-4 px-5 py-4 bg-slate-50">
+                      <div className="grid grid-cols-5 gap-4 px-5 py-4 bg-slate-50">
                         <div className="flex items-center gap-3">
                           <div className="p-2 bg-emerald-50 rounded-lg">
                             <MapPin className="w-4 h-4 text-emerald-600" />
@@ -561,6 +572,22 @@ export default function IntegrationAccess() {
                             ) : (
                               <div className="text-sm font-medium text-slate-500">Not configured</div>
                             )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-indigo-50 rounded-lg">
+                            <Zap className="w-4 h-4 text-indigo-600" />
+                          </div>
+                          <div>
+                            <div className="text-xs text-slate-500 font-medium">Priority</div>
+                            <div className="text-sm font-semibold text-slate-900">
+                              {config.wand_integration_sources?.priority ?? 'N/A'}
+                              <div className="text-xs font-normal text-slate-600 mt-0.5">
+                                {config.wand_integration_sources?.priority === 1
+                                  ? 'Highest'
+                                  : 'Lower = wins'}
+                              </div>
+                            </div>
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
@@ -594,7 +621,23 @@ export default function IntegrationAccess() {
                         </div>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-3 gap-4 px-5 py-4 bg-slate-50">
+                      <div className="grid grid-cols-4 gap-4 px-5 py-4 bg-slate-50">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-indigo-50 rounded-lg">
+                            <Zap className="w-4 h-4 text-indigo-600" />
+                          </div>
+                          <div>
+                            <div className="text-xs text-slate-500 font-medium">Priority</div>
+                            <div className="text-sm font-semibold text-slate-900">
+                              {config.wand_integration_sources?.priority ?? 'N/A'}
+                              <div className="text-xs font-normal text-slate-600 mt-0.5">
+                                {config.wand_integration_sources?.priority === 1
+                                  ? 'Highest'
+                                  : 'Lower = wins'}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
                         <div className="flex items-center gap-3">
                           <div className="p-2 bg-blue-50 rounded-lg">
                             <Zap className="w-4 h-4 text-blue-600" />
