@@ -2,10 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import {
   UtensilsCrossed, Plus, Search, Globe, Layers, X, Share2,
   ChevronRight, Calendar, Package, Palette, Image, Check,
-  ArrowRight, Unlink, Copy, RefreshCw, ChevronLeft, Building2,
-  Coffee, Sun, Moon, Sunset, Info
+  ArrowRight, Unlink, Building2, Info, Settings
 } from 'lucide-react';
 import Breadcrumb from '../components/Breadcrumb';
+import BrandScheduleEditor from '../components/BrandScheduleEditor';
 import { supabase } from '../lib/supabase';
 import { useLocation } from '../hooks/useLocation';
 
@@ -43,7 +43,6 @@ interface BrandWorkspaceProps {
 }
 
 const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAY_INDICES = [1, 2, 3, 4, 5, 6, 0];
 
 export default function BrandWorkspace({
@@ -364,29 +363,6 @@ function BrandOverviewCard({ brand, activeDays, onSelect, onUnlink, isSubBrand }
 
 /* ─── Brand Detail Panel (bookmark nav + cycle schedule) ─── */
 
-interface StationSchedule {
-  id: string;
-  station_id: number;
-  brand_id: number;
-  cycle_week: number | null;
-  days_of_week: number[];
-  is_active: boolean;
-}
-
-interface Station {
-  id: number;
-  name: string;
-  store_id: number | null;
-  uses_cycle: boolean;
-  status: string;
-}
-
-interface CycleSettings {
-  id: string;
-  cycle_duration_weeks: number;
-  start_date: string | null;
-}
-
 const DETAIL_SECTIONS = [
   { id: 'identity', label: 'Identity', icon: Info },
   { id: 'colors', label: 'Colors', icon: Palette },
@@ -394,13 +370,6 @@ const DETAIL_SECTIONS = [
   { id: 'actions', label: 'Quick Actions', icon: ArrowRight },
   { id: 'companies', label: 'Linked Companies', icon: Building2 },
 ];
-
-const DAYPART_ICONS: Record<string, React.ReactNode> = {
-  breakfast: <Coffee className="w-3.5 h-3.5" />,
-  lunch: <Sun className="w-3.5 h-3.5" />,
-  dinner: <Sunset className="w-3.5 h-3.5" />,
-  'late night': <Moon className="w-3.5 h-3.5" />,
-};
 
 function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
   onNavigateToBrandMenus, onNavigateToScheduling, onNavigateToProducts, onBrandUpdated
@@ -424,24 +393,15 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
   const [secondaryColor, setSecondaryColor] = useState(brand.brand_secondary_color || '#94a3b8');
   const [savingColors, setSavingColors] = useState(false);
 
-  // Schedule
-  const [stations, setStations] = useState<Station[]>([]);
-  const [schedules, setSchedules] = useState<StationSchedule[]>([]);
-  const [cycleSettings, setCycleSettings] = useState<CycleSettings | null>(null);
-  const [selectedCycleWeek, setSelectedCycleWeek] = useState<number>(1);
-  const [scheduleLoading, setScheduleLoading] = useState(true);
-  const [savingSchedule, setSavingSchedule] = useState(false);
+  // Schedule type
+  const [schedulingMode, setSchedulingMode] = useState(brand.scheduling_mode || 'static');
+  const [savingMode, setSavingMode] = useState(false);
 
   // Companies
   const [linkedCompanies, setLinkedCompanies] = useState<Array<{ id: number; name: string }>>([]);
 
-  // Dayparts
-  const [daypartDefs, setDaypartDefs] = useState<Array<{ id: string; name: string; color: string }>>([]);
-
   useEffect(() => {
     loadLinkedCompanies();
-    loadScheduleData();
-    loadDayparts();
   }, [brand.id]);
 
   useEffect(() => {
@@ -477,40 +437,6 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
     }
   };
 
-  const loadDayparts = async () => {
-    const { data } = await supabase.from('daypart_definitions').select('id, name, color').order('sort_order');
-    if (data) setDaypartDefs(data);
-  };
-
-  const loadScheduleData = async () => {
-    setScheduleLoading(true);
-
-    // Load stations that have schedules for this brand
-    const { data: schedData } = await supabase
-      .from('station_schedules')
-      .select('id, station_id, brand_id, cycle_week, days_of_week, is_active')
-      .eq('brand_id', brand.id);
-    if (schedData) setSchedules(schedData);
-
-    const stationIds = [...new Set((schedData || []).map(s => s.station_id))];
-    if (stationIds.length > 0) {
-      const { data: stData } = await supabase.from('stations').select('id, name, store_id, uses_cycle, status').in('id', stationIds);
-      if (stData) setStations(stData);
-
-      // Load cycle settings from the store of first station
-      const firstStoreId = stData?.[0]?.store_id;
-      if (firstStoreId) {
-        const { data: cycleData } = await supabase
-          .from('organization_cycle_settings')
-          .select('id, cycle_duration_weeks, start_date')
-          .eq('store_id', firstStoreId)
-          .maybeSingle();
-        if (cycleData) setCycleSettings(cycleData);
-      }
-    }
-    setScheduleLoading(false);
-  };
-
   const handleSaveColors = async () => {
     setSavingColors(true);
     await supabase.from('concepts').update({ brand_primary_color: primaryColor, brand_secondary_color: secondaryColor }).eq('id', brand.id);
@@ -519,86 +445,12 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
     onBrandUpdated();
   };
 
-  const cycleDuration = cycleSettings?.cycle_duration_weeks || 1;
-  const cycleWeeks = Array.from({ length: cycleDuration }, (_, i) => i + 1);
-
-  const getScheduleForWeek = (weekNum: number) => {
-    const cycleWeekValue = cycleDuration === 1 ? null : weekNum;
-    return schedules.filter(s =>
-      s.is_active && (s.cycle_week === cycleWeekValue || (cycleDuration === 1 && s.cycle_week === null))
-    );
-  };
-
-  const toggleDayForStation = async (stationId: number, dayIndex: number, weekNum: number) => {
-    setSavingSchedule(true);
-    const cycleWeekValue = cycleDuration === 1 ? null : weekNum;
-    const existing = schedules.find(s =>
-      s.station_id === stationId && s.brand_id === brand.id && s.is_active &&
-      (s.cycle_week === cycleWeekValue || (cycleDuration === 1 && s.cycle_week === null))
-    );
-
-    if (existing) {
-      const hasDayNow = existing.days_of_week.includes(dayIndex);
-      const newDays = hasDayNow
-        ? existing.days_of_week.filter(d => d !== dayIndex)
-        : [...existing.days_of_week, dayIndex];
-
-      if (newDays.length === 0) {
-        await supabase.from('station_schedules').delete().eq('id', existing.id);
-        setSchedules(prev => prev.filter(s => s.id !== existing.id));
-      } else {
-        await supabase.from('station_schedules').update({ days_of_week: newDays }).eq('id', existing.id);
-        setSchedules(prev => prev.map(s => s.id === existing.id ? { ...s, days_of_week: newDays } : s));
-      }
-    } else {
-      const { data } = await supabase
-        .from('station_schedules')
-        .insert({ station_id: stationId, brand_id: brand.id, cycle_week: cycleWeekValue, days_of_week: [dayIndex], is_active: true })
-        .select().maybeSingle();
-      if (data) setSchedules(prev => [...prev, data]);
-    }
-    setSavingSchedule(false);
-  };
-
-  const addCycleWeek = async () => {
-    if (!cycleSettings) {
-      // Create cycle settings for the store
-      const storeId = stations[0]?.store_id || userStoreId;
-      if (!storeId) return;
-      const { data } = await supabase
-        .from('organization_cycle_settings')
-        .insert({ store_id: storeId, cycle_duration_weeks: 2 })
-        .select().maybeSingle();
-      if (data) setCycleSettings(data);
-    } else {
-      const newDuration = cycleDuration + 1;
-      await supabase.from('organization_cycle_settings').update({ cycle_duration_weeks: newDuration }).eq('id', cycleSettings.id);
-      setCycleSettings({ ...cycleSettings, cycle_duration_weeks: newDuration });
-    }
-  };
-
-  const repeatWeek = async (sourceWeek: number) => {
-    setSavingSchedule(true);
-    const targetWeek = cycleDuration + 1;
-    // First add the week
-    if (!cycleSettings) { setSavingSchedule(false); return; }
-    await supabase.from('organization_cycle_settings').update({ cycle_duration_weeks: targetWeek }).eq('id', cycleSettings.id);
-    setCycleSettings({ ...cycleSettings, cycle_duration_weeks: targetWeek });
-
-    const sourceSchedules = getScheduleForWeek(sourceWeek);
-    const newRows = sourceSchedules.map(s => ({
-      station_id: s.station_id,
-      brand_id: s.brand_id,
-      cycle_week: targetWeek,
-      days_of_week: [...s.days_of_week],
-      is_active: true,
-    }));
-    if (newRows.length > 0) {
-      const { data } = await supabase.from('station_schedules').insert(newRows).select();
-      if (data) setSchedules(prev => [...prev, ...data]);
-    }
-    setSelectedCycleWeek(targetWeek);
-    setSavingSchedule(false);
+  const handleChangeSchedulingMode = async (mode: string) => {
+    setSchedulingMode(mode);
+    setSavingMode(true);
+    await supabase.from('concepts').update({ scheduling_mode: mode }).eq('id', brand.id);
+    setSavingMode(false);
+    onBrandUpdated();
   };
 
   const brandColor = brand.brand_primary_color || '#00adf0';
@@ -622,7 +474,7 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
                   {brand.visibility === 'national' ? 'National' : 'Local'}
                 </span>
               </div>
-              <p className="text-sm text-slate-500 mt-0.5 capitalize">{brand.brand_type || 'Standard'} brand -- {brand.scheduling_mode || 'Static'} scheduling</p>
+              <p className="text-sm text-slate-500 mt-0.5 capitalize">{brand.brand_type || 'Standard'} brand</p>
             </div>
           </div>
           {onUnlink && (
@@ -689,8 +541,19 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
                   {brand.description && <p className="text-sm text-slate-500 mt-1">{brand.description}</p>}
                   <div className="flex flex-wrap gap-4 mt-3">
                     <div className="text-sm"><span className="text-slate-400">Type:</span> <span className="text-slate-700 font-medium capitalize">{brand.brand_type || 'Standard'}</span></div>
-                    <div className="text-sm"><span className="text-slate-400">Schedule:</span> <span className="text-slate-700 font-medium capitalize">{brand.scheduling_mode || 'Static'}</span></div>
-                    <div className="text-sm"><span className="text-slate-400">Scope:</span> <span className="text-slate-700 font-medium">{brand.created_by_store_id ? 'Site-specific' : 'Organization-wide'}</span></div>
+                    <div className="text-sm flex items-center gap-1.5">
+                      <span className="text-slate-400">Schedule Type:</span>
+                      <select
+                        value={schedulingMode}
+                        onChange={(e) => handleChangeSchedulingMode(e.target.value)}
+                        disabled={savingMode}
+                        className="text-sm font-medium text-slate-700 bg-transparent border border-slate-200 rounded-md px-2 py-0.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none cursor-pointer hover:border-slate-300 transition-colors disabled:opacity-50"
+                      >
+                        <option value="cycle">Cycle</option>
+                        <option value="static">Static</option>
+                      </select>
+                      {savingMode && <span className="text-[10px] text-slate-400 animate-pulse">Saving...</span>}
+                    </div>
                   </div>
                   {brand.design_notes && (
                     <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
@@ -747,138 +610,13 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
             )}
           </div>
 
-          {/* Schedule Section */}
-          <div data-section="schedule" className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-            <div className="p-6 border-b border-slate-200">
-              <div className="flex items-center justify-between">
-                <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-[#00adf0]" /> Cycle Schedule
-                </h2>
-                <div className="flex items-center gap-2">
-                  {savingSchedule && <span className="text-xs text-slate-400 animate-pulse">Saving...</span>}
-                  {cycleDuration > 0 && (
-                    <button onClick={() => repeatWeek(selectedCycleWeek)} className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1.5" title="Duplicate this week as a new cycle week">
-                      <Copy className="w-3.5 h-3.5" /> Repeat Week
-                    </button>
-                  )}
-                  <button onClick={addCycleWeek} className="px-3 py-1.5 text-xs font-medium text-[#00adf0] bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-1.5">
-                    <Plus className="w-3.5 h-3.5" /> Add Week
-                  </button>
-                </div>
-              </div>
-
-              {/* Cycle week tabs */}
-              {cycleDuration > 1 && (
-                <div className="flex items-center gap-1 mt-4">
-                  {cycleWeeks.map(w => (
-                    <button key={w} onClick={() => setSelectedCycleWeek(w)}
-                      className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                        selectedCycleWeek === w ? 'text-white shadow-sm' : 'text-slate-600 bg-slate-100 hover:bg-slate-200'
-                      }`}
-                      style={selectedCycleWeek === w ? { backgroundColor: brandColor } : undefined}
-                    >
-                      Week {w}
-                    </button>
-                  ))}
-                  {cycleSettings?.start_date && (
-                    <span className="ml-3 text-xs text-slate-400">Starting: {new Date(cycleSettings.start_date).toLocaleDateString()}</span>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Daypart indicators */}
-            {daypartDefs.length > 0 && (
-              <div className="px-6 py-3 border-b border-slate-100 bg-slate-50/50">
-                <div className="flex items-center gap-4">
-                  <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">Dayparts:</span>
-                  {daypartDefs.map(dp => (
-                    <div key={dp.id} className="flex items-center gap-1.5">
-                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: dp.color || '#94a3b8' }} />
-                      <span className="text-xs text-slate-600 capitalize">{dp.name}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Station x Day grid */}
-            <div className="p-6">
-              {scheduleLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#00adf0]"></div>
-                </div>
-              ) : stations.length === 0 ? (
-                <div className="text-center py-12">
-                  <Calendar className="w-10 h-10 mx-auto mb-3 text-slate-300" />
-                  <p className="text-sm font-medium text-slate-600">No stations scheduled for this brand</p>
-                  <p className="text-xs text-slate-400 mt-1">Assign this brand to stations from the Station Scheduling page.</p>
-                  {onNavigateToScheduling && (
-                    <button onClick={onNavigateToScheduling} className="mt-4 px-4 py-2 text-sm bg-[#00adf0] text-white rounded-lg hover:bg-[#0099d6] transition-colors inline-flex items-center gap-2">
-                      <Calendar className="w-4 h-4" /> Go to Scheduling
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr>
-                        <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide pb-3 pr-4 w-48">Station</th>
-                        {DAY_NAMES.map((day, idx) => (
-                          <th key={day} className="text-center text-xs font-semibold text-slate-500 uppercase tracking-wide pb-3 w-16">{day}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {stations.map(station => {
-                        const weekSchedules = getScheduleForWeek(selectedCycleWeek);
-                        const stationSched = weekSchedules.find(s => s.station_id === station.id);
-                        const activeDays = stationSched?.days_of_week || [];
-
-                        return (
-                          <tr key={station.id} className="border-t border-slate-100 group/row hover:bg-slate-50/50 transition-colors">
-                            <td className="py-3 pr-4">
-                              <div className="flex items-center gap-2">
-                                <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: brandColor }}>
-                                  {station.name.charAt(0)}
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="text-sm font-medium text-slate-800 truncate">{station.name}</p>
-                                  <p className="text-[10px] text-slate-400">{station.uses_cycle ? 'Cycle' : 'Static'}</p>
-                                </div>
-                              </div>
-                            </td>
-                            {DAY_INDICES.map((dayIndex, colIdx) => {
-                              const isActive = activeDays.includes(dayIndex);
-                              return (
-                                <td key={colIdx} className="py-3">
-                                  <div className="flex justify-center">
-                                    <button
-                                      onClick={() => toggleDayForStation(station.id, dayIndex, selectedCycleWeek)}
-                                      className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all border-2 ${
-                                        isActive
-                                          ? 'text-white border-transparent shadow-sm hover:opacity-80'
-                                          : 'border-slate-200 bg-white text-slate-300 hover:border-slate-300 hover:text-slate-400'
-                                      }`}
-                                      style={isActive ? { backgroundColor: brandColor, borderColor: brandColor } : undefined}
-                                      disabled={savingSchedule}
-                                    >
-                                      {isActive ? <Check className="w-4 h-4" /> : <span className="text-xs">{DAY_LABELS[colIdx]}</span>}
-                                    </button>
-                                  </div>
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
+          {/* Schedule Section -- now a standalone component */}
+          <BrandScheduleEditor
+            brandId={brand.id}
+            brandColor={brandColor}
+            userStoreId={userStoreId}
+            onNavigateToScheduling={onNavigateToScheduling}
+          />
 
           {/* Quick Actions Section */}
           <div data-section="actions" className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
@@ -899,11 +637,11 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
               {onNavigateToScheduling && (
                 <button onClick={onNavigateToScheduling} className="flex items-center gap-3 p-4 rounded-lg border border-slate-200 hover:border-[#00adf0] hover:bg-blue-50/50 transition-all group text-left">
                   <div className="w-10 h-10 rounded-lg bg-slate-100 group-hover:bg-[#00adf0]/10 flex items-center justify-center text-slate-500 group-hover:text-[#00adf0] transition-colors shrink-0">
-                    <Calendar className="w-5 h-5" />
+                    <Settings className="w-5 h-5" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-800 group-hover:text-[#00adf0] transition-colors">Station Scheduling</p>
-                    <p className="text-xs text-slate-400">Assignments and rotations</p>
+                    <p className="text-sm font-medium text-slate-800 group-hover:text-[#00adf0] transition-colors">Location Configuration</p>
+                    <p className="text-xs text-slate-400">Dayparts and station setup</p>
                   </div>
                   <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-[#00adf0] transition-colors shrink-0" />
                 </button>
