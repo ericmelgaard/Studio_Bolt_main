@@ -175,6 +175,7 @@ export default function OperatorDashboard({ onBack, user }: OperatorDashboardPro
         <BrandWorkspace
           userConceptId={user.concept_id}
           userCompanyId={user.company_id}
+          userStoreId={user.store_id}
           onBack={() => setCurrentView('displays')}
         />
       </Suspense>

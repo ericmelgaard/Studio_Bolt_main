@@ -61,7 +61,7 @@ export default function ConceptsGrid({ concepts, onEdit, onSelect }: ConceptsGri
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Concept
+                    Brand
                   </th>
                   <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Description

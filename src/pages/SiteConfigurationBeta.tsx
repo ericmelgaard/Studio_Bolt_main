@@ -155,6 +155,8 @@ export default function SiteConfigurationBeta({ role, userId }: SiteConfiguratio
     const { data: conceptsData, error } = await supabase
       .from('concepts')
       .select('*')
+      .eq('visibility', 'national')
+      .eq('is_wrapper', false)
       .order('name');
 
     if (error) {

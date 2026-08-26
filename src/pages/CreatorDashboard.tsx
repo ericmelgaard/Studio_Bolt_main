@@ -323,6 +323,7 @@ export default function CreatorDashboard({ onBack, user }: CreatorDashboardProps
           <BrandWorkspace
             userConceptId={user.concept_id}
             userCompanyId={user.company_id}
+            userStoreId={user.store_id}
             onBack={() => setCurrentView('dashboard')}
           />
         </Suspense>
