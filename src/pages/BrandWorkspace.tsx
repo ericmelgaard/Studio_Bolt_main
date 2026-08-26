@@ -38,13 +38,14 @@ interface BrandWorkspaceProps {
   userConceptId?: number | null;
   userCompanyId?: number | null;
   userStoreId?: number | null;
+  isAdmin?: boolean;
   onBack?: () => void;
 }
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const TODAY_INDEX = new Date().getDay();
 
-export default function BrandWorkspace({ userConceptId, userCompanyId, userStoreId, onBack }: BrandWorkspaceProps) {
+export default function BrandWorkspace({ userConceptId, userCompanyId, userStoreId, isAdmin, onBack }: BrandWorkspaceProps) {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [selectedBrand, setSelectedBrand] = useState<Brand | null>(null);
   const [activeTab, setActiveTab] = useState<'menus' | 'schedule' | 'products' | 'settings'>('menus');
@@ -53,6 +54,7 @@ export default function BrandWorkspace({ userConceptId, userCompanyId, userStore
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateSubBrand, setShowCreateSubBrand] = useState(false);
+  const [showLinkNationalBrand, setShowLinkNationalBrand] = useState(false);
 
   useEffect(() => {
     loadBrands();
@@ -105,7 +107,6 @@ export default function BrandWorkspace({ userConceptId, userCompanyId, userStore
         .order('name');
       if (data) {
         setBrands(data);
-        if (data.length === 1 && !data[0].is_wrapper) setSelectedBrand(data[0]);
       }
     }
     setLoading(false);
@@ -165,6 +166,7 @@ export default function BrandWorkspace({ userConceptId, userCompanyId, userStore
   };
 
   const handleCreateSubBrand = async (name: string, parentId: number | null, color: string) => {
+    const companyId = userCompanyId || await resolveCompanyId();
     const { data, error } = await supabase
       .from('concepts')
       .insert({
@@ -185,13 +187,61 @@ export default function BrandWorkspace({ userConceptId, userCompanyId, userStore
       return;
     }
 
-    if (data && userCompanyId) {
+    if (data && companyId) {
       await supabase
         .from('company_brands')
-        .insert({ company_id: userCompanyId, concept_id: data.id });
+        .insert({ company_id: companyId, concept_id: data.id });
     }
 
     setShowCreateSubBrand(false);
+    loadBrands();
+  };
+
+  const resolveCompanyId = async (): Promise<number | null> => {
+    if (userCompanyId) return userCompanyId;
+    if (userStoreId) {
+      const { data } = await supabase
+        .from('stores')
+        .select('company_id')
+        .eq('id', userStoreId)
+        .single();
+      return data?.company_id || null;
+    }
+    return null;
+  };
+
+  const handleLinkNationalBrand = async (conceptId: number) => {
+    const companyId = userCompanyId || await resolveCompanyId();
+    if (!companyId) return;
+
+    const { error } = await supabase
+      .from('company_brands')
+      .insert({ company_id: companyId, concept_id: conceptId });
+
+    if (error) {
+      console.error('Error linking brand:', error);
+      return;
+    }
+
+    setShowLinkNationalBrand(false);
+    loadBrands();
+  };
+
+  const handleUnlinkBrand = async (conceptId: number) => {
+    const companyId = userCompanyId || await resolveCompanyId();
+    if (!companyId) return;
+
+    const { error } = await supabase
+      .from('company_brands')
+      .delete()
+      .eq('company_id', companyId)
+      .eq('concept_id', conceptId);
+
+    if (error) {
+      console.error('Error unlinking brand:', error);
+      return;
+    }
+
     loadBrands();
   };
 
@@ -211,13 +261,28 @@ export default function BrandWorkspace({ userConceptId, userCompanyId, userStore
     return (
       <div className="max-w-6xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">My Brands</h1>
-          <button
-            onClick={() => setShowCreateSubBrand(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" /> Create Sub-Brand
-          </button>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Brands</h1>
+            <p className="text-sm text-slate-500 mt-0.5">
+              {brands.length} brand{brands.length !== 1 ? 's' : ''} linked to this location
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <button
+                onClick={() => setShowLinkNationalBrand(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 border border-blue-200 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors"
+              >
+                <Share2 className="w-4 h-4" /> Link National Brand
+              </button>
+            )}
+            <button
+              onClick={() => setShowCreateSubBrand(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" /> Create Local Brand
+            </button>
+          </div>
         </div>
 
         {brands.length === 0 ? (
@@ -241,7 +306,7 @@ export default function BrandWorkspace({ userConceptId, userCompanyId, userStore
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {nationalBrands.map(brand => (
-                    <BrandCard key={brand.id} brand={brand} onSelect={setSelectedBrand} />
+                    <BrandCard key={brand.id} brand={brand} onSelect={setSelectedBrand} onUnlink={isAdmin ? () => handleUnlinkBrand(brand.id) : undefined} />
                   ))}
                 </div>
               </section>
@@ -303,6 +368,14 @@ export default function BrandWorkspace({ userConceptId, userCompanyId, userStore
             wrapperBrands={wrapperBrands}
             onClose={() => setShowCreateSubBrand(false)}
             onCreate={handleCreateSubBrand}
+          />
+        )}
+
+        {showLinkNationalBrand && (
+          <LinkNationalBrandModal
+            existingBrandIds={brands.map(b => b.id)}
+            onClose={() => setShowLinkNationalBrand(false)}
+            onLink={handleLinkNationalBrand}
           />
         )}
       </div>
@@ -374,32 +447,43 @@ export default function BrandWorkspace({ userConceptId, userCompanyId, userStore
   );
 }
 
-function BrandCard({ brand, onSelect, isSubBrand }: { brand: Brand; onSelect: (b: Brand) => void; isSubBrand?: boolean }) {
+function BrandCard({ brand, onSelect, isSubBrand, onUnlink }: { brand: Brand; onSelect: (b: Brand) => void; isSubBrand?: boolean; onUnlink?: () => void }) {
   return (
-    <button
-      onClick={() => onSelect(brand)}
-      className="text-left bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-600 transition-all group"
-    >
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
-          <div
-            className={`w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold text-sm ${isSubBrand ? 'rounded-full' : ''}`}
-            style={{ backgroundColor: brand.brand_primary_color || '#3b82f6' }}
-          >
-            {brand.name.charAt(0)}
+    <div className="relative text-left bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-600 transition-all group">
+      <button
+        onClick={() => onSelect(brand)}
+        className="w-full text-left"
+      >
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div
+              className={`w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold text-sm ${isSubBrand ? 'rounded-full' : ''}`}
+              style={{ backgroundColor: brand.brand_primary_color || '#3b82f6' }}
+            >
+              {brand.name.charAt(0)}
+            </div>
+            <div>
+              <h3 className="font-semibold text-slate-900 dark:text-white group-hover:text-blue-600 transition-colors">
+                {brand.name}
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5 capitalize">
+                {brand.brand_type || 'Standard'} &middot; {brand.scheduling_mode || 'Static'}
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className="font-semibold text-slate-900 dark:text-white group-hover:text-blue-600 transition-colors">
-              {brand.name}
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5 capitalize">
-              {brand.brand_type || 'Standard'} &middot; {brand.scheduling_mode || 'Static'}
-            </p>
-          </div>
+          <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-blue-500 transition-colors" />
         </div>
-        <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-blue-500 transition-colors" />
-      </div>
-    </button>
+      </button>
+      {onUnlink && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onUnlink(); }}
+          className="absolute top-2 right-2 p-1.5 opacity-0 group-hover:opacity-100 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all"
+          title="Unlink brand"
+        >
+          <X className="w-3.5 h-3.5 text-red-500" />
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -767,6 +851,115 @@ function SettingsTab({ brand }: { brand: Brand }) {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function LinkNationalBrandModal({ existingBrandIds, onClose, onLink }: {
+  existingBrandIds: number[];
+  onClose: () => void;
+  onLink: (conceptId: number) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const [availableBrands, setAvailableBrands] = useState<Array<{ id: number; name: string; brand_primary_color: string | null; brand_type: string | null }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [linking, setLinking] = useState<number | null>(null);
+
+  useEffect(() => {
+    loadAvailableBrands();
+  }, []);
+
+  const loadAvailableBrands = async () => {
+    const { data } = await supabase
+      .from('concepts')
+      .select('id, name, brand_primary_color, brand_type')
+      .eq('visibility', 'national')
+      .eq('is_wrapper', false)
+      .order('name');
+
+    if (data) {
+      setAvailableBrands(data.filter(b => !existingBrandIds.includes(b.id)));
+    }
+    setLoading(false);
+  };
+
+  const filtered = search.trim()
+    ? availableBrands.filter(b => b.name.toLowerCase().includes(search.toLowerCase()))
+    : availableBrands;
+
+  const handleLink = async (id: number) => {
+    setLinking(id);
+    await onLink(id);
+    setLinking(null);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white">Link National Brand</h2>
+            <p className="text-sm text-slate-500 mt-0.5">Add an existing brand to this location</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg">
+            <X className="w-5 h-5 text-slate-500" />
+          </button>
+        </div>
+
+        <div className="px-6 pt-4">
+          <div className="relative">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search brands..."
+              className="w-full px-3 py-2.5 pl-9 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              autoFocus
+            />
+            <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 pt-4 space-y-2">
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="text-center py-8 text-slate-500">
+              <Globe className="w-8 h-8 mx-auto mb-2 opacity-40" />
+              <p className="text-sm">{search ? 'No brands match your search' : 'All national brands are already linked'}</p>
+            </div>
+          ) : (
+            filtered.map(brand => (
+              <div
+                key={brand.id}
+                className="flex items-center justify-between p-3 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-xs"
+                    style={{ backgroundColor: brand.brand_primary_color || '#3b82f6' }}
+                  >
+                    {brand.name.charAt(0)}
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium text-slate-900 dark:text-white">{brand.name}</span>
+                    <span className="text-xs text-slate-500 ml-2 capitalize">{brand.brand_type || 'Standard'}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleLink(brand.id)}
+                  disabled={linking === brand.id}
+                  className="px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-50 transition-colors"
+                >
+                  {linking === brand.id ? 'Linking...' : 'Link'}
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     </div>
   );
 }
