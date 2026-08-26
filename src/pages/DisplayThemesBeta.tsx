@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Plus, Search, Calendar, Monitor, Edit2, Trash2, AlertTriangle } from 'lucide-react';
+import { Plus, Search, Calendar, Monitor, CreditCard as Edit2, Trash2, AlertTriangle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import ThemeModal from '../components/ThemeModal';
-import PlacementRoutineModal from '../components/PlacementRoutineModal';
+import StationRoutineModal from '../components/StationRoutineModal';
 
 interface Theme {
   id: string;
@@ -420,7 +420,7 @@ export default function DisplayThemesBeta({ onBack, onEditContent, conceptId }: 
       )}
 
       {showRoutineModal && routineTheme && (
-        <PlacementRoutineModal
+        <StationRoutineModal
           themeId={routineTheme.id}
           themeName={routineTheme.name}
           onClose={() => {

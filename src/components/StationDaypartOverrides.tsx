@@ -4,8 +4,8 @@ import { supabase } from '../lib/supabase';
 import DaypartRoutineForm, { DaypartRoutine } from './DaypartRoutineForm';
 import Breadcrumb from './Breadcrumb';
 
-interface PlacementDaypartOverridesProps {
-  placementGroupId: string;
+interface StationDaypartOverridesProps {
+  stationGroupId: string;
 }
 
 interface SiteRoutine extends DaypartRoutine {
@@ -78,7 +78,7 @@ function formatDaysList(days: number[]): string {
   return dayNames.join(', ');
 }
 
-export default function PlacementDaypartOverrides({ placementGroupId }: PlacementDaypartOverridesProps) {
+export default function StationDaypartOverrides({ stationGroupId }: StationDaypartOverridesProps) {
   const [routines, setRoutines] = useState<DaypartRoutine[]>([]);
   const [inheritedSchedules, setInheritedSchedules] = useState<EffectiveSchedule[]>([]);
   const [daypartDefinitions, setDaypartDefinitions] = useState<DaypartDefinition[]>([]);
@@ -102,26 +102,26 @@ export default function PlacementDaypartOverrides({ placementGroupId }: Placemen
 
   useEffect(() => {
     loadData();
-  }, [placementGroupId]);
+  }, [stationGroupId]);
 
   const loadData = async () => {
     setLoading(true);
 
     try {
-      // Get placement's store_id
-      const placementResult = await supabase
+      // Get station's store_id
+      const stationResult = await supabase
         .from('placement_groups')
         .select('store_id')
-        .eq('id', placementGroupId)
+        .eq('id', stationGroupId)
         .single();
 
-      if (placementResult.error || !placementResult.data?.store_id) {
-        console.error('Error loading placement:', placementResult.error);
+      if (stationResult.error || !stationResult.data?.store_id) {
+        console.error('Error loading station:', stationResult.error);
         setLoading(false);
         return;
       }
 
-      const storeIdValue = placementResult.data.store_id;
+      const storeIdValue = stationResult.data.store_id;
       setStoreId(storeIdValue);
 
       // Load daypart definitions for this store
@@ -138,11 +138,11 @@ export default function PlacementDaypartOverrides({ placementGroupId }: Placemen
       const definitions = defsResult.data || [];
       setDaypartDefinitions(definitions);
 
-      // Load placement customizations
+      // Load station customizations
       const routinesResult = await supabase
         .from('placement_daypart_overrides')
         .select('*')
-        .eq('placement_group_id', placementGroupId);
+        .eq('placement_group_id', stationGroupId);
 
       const customizations = routinesResult.data || [];
       setRoutines(customizations);
@@ -229,7 +229,7 @@ export default function PlacementDaypartOverrides({ placementGroupId }: Placemen
 
         sameDaypartSchedules.forEach(sched => {
           schedulesToInsert.push({
-            placement_group_id: placementGroupId,
+            placement_group_id: stationGroupId,
             daypart_name: sched.daypart_name,
             days_of_week: sched.days_of_week,
             start_time: sched.start_time,
@@ -263,7 +263,7 @@ export default function PlacementDaypartOverrides({ placementGroupId }: Placemen
       const { data: otherSchedules, error: queryError } = await supabase
         .from('placement_daypart_overrides')
         .select('*')
-        .eq('placement_group_id', placementGroupId)
+        .eq('placement_group_id', stationGroupId)
         .eq('daypart_name', routine.daypart_name)
         .eq('start_time', routine.start_time)
         .eq('end_time', routine.end_time)
@@ -436,7 +436,7 @@ export default function PlacementDaypartOverrides({ placementGroupId }: Placemen
     setIsAddingNew(true);
   };
 
-  // Group placement-specific schedules
+  // Group station-specific schedules
   const regularRoutines = routines.filter(s => s.schedule_type !== 'event_holiday');
   const eventRoutines = routines.filter(s => s.schedule_type === 'event_holiday');
 
@@ -550,13 +550,13 @@ export default function PlacementDaypartOverrides({ placementGroupId }: Placemen
     return (
       <div>
         <DaypartRoutineForm
-            placementGroupId={placementGroupId}
+            stationGroupId={stationGroupId}
             existingRoutines={allRoutinesForCollision}
             onSave={handleSave}
             onCancel={handleCancel}
             editingRoutine={editingInherited ? {
               id: undefined,
-              placement_group_id: placementGroupId,
+              placement_group_id: stationGroupId,
               daypart_name: editingInherited.daypart_name,
               days_of_week: editingInherited.days_of_week,
               start_time: editingInherited.start_time,
@@ -588,10 +588,10 @@ export default function PlacementDaypartOverrides({ placementGroupId }: Placemen
       <div className="bg-white rounded-lg border border-slate-200 p-6 shadow-sm">
         <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
           <Clock className="w-5 h-5 text-blue-600" />
-          Placement Schedules
+          Station Schedules
         </h3>
         <p className="text-sm text-slate-600 mt-1">
-          Configure daypart hours and event/holiday schedules for this placement.
+          Configure daypart hours and event/holiday schedules for this station.
         </p>
       </div>
 
@@ -1206,7 +1206,7 @@ export default function PlacementDaypartOverrides({ placementGroupId }: Placemen
       {routines.length === 0 && inheritedSchedules.length > 0 && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <p className="text-sm text-blue-800">
-            This placement uses store-level schedules. Click "Store Dayparts" to view and customize schedules for this placement.
+            This station uses store-level schedules. Click "Store Dayparts" to view and customize schedules for this station.
           </p>
         </div>
       )}

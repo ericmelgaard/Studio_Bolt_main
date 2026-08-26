@@ -2,10 +2,10 @@ import { useState, useEffect, FormEvent } from 'react';
 import { X, AlertCircle, Clock, Utensils, Palette, Nfc, MapPin, Phone, Globe } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import SiteDaypartManager from './SiteDaypartManager';
-import PlacementDaypartOverrides from './PlacementDaypartOverrides';
+import StationDaypartOverrides from './StationDaypartOverrides';
 import TimeSelector from './TimeSelector';
 
-interface PlacementGroup {
+interface StationGroup {
   id?: string;
   name?: string;
   description?: string | null;
@@ -22,9 +22,9 @@ interface PlacementGroup {
   operating_hours?: Record<string, any>;
 }
 
-interface PlacementGroupModalProps {
-  group: PlacementGroup | null;
-  availableParents: PlacementGroup[];
+interface StationGroupModalProps {
+  group: StationGroup | null;
+  availableParents: StationGroup[];
   storeId?: number | null;
   defaultParentId?: string | null;
   isParentStoreRoot?: boolean;
@@ -35,7 +35,7 @@ interface PlacementGroupModalProps {
 const DAYPART_TYPES = ['breakfast', 'lunch', 'dinner', 'late_night', 'dark_hours'];
 const DEVICE_SIZES = ['4.2"', '5"', '7"'];
 
-export default function PlacementGroupModal({ group, availableParents, storeId, defaultParentId, isParentStoreRoot = false, onClose, onSuccess }: PlacementGroupModalProps) {
+export default function StationGroupModal({ group, availableParents, storeId, defaultParentId, isParentStoreRoot = false, onClose, onSuccess }: StationGroupModalProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
@@ -82,7 +82,7 @@ export default function PlacementGroupModal({ group, availableParents, storeId, 
         meal_stations: mealStations,
         templates: templates,
         nfc_url: formData.nfc_url || null,
-        ...(!group?.id && storeId && { store_id: storeId }), // Set store_id for new placements
+        ...(!group?.id && storeId && { store_id: storeId }), // Set store_id for new stations
         ...(isStoreRoot && {
           address: formData.address || null,
           timezone: formData.timezone || 'America/New_York',
@@ -93,7 +93,7 @@ export default function PlacementGroupModal({ group, availableParents, storeId, 
 
       if (group?.id) {
         if (group.name === '36355 - WAND Digital Demo' && data.name !== '36355 - WAND Digital Demo') {
-          setError('Cannot rename the default store placement group');
+          setError('Cannot rename the default store station group');
           setLoading(false);
           return;
         }
@@ -114,7 +114,7 @@ export default function PlacementGroupModal({ group, availableParents, storeId, 
 
       onSuccess();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save placement group');
+      setError(err instanceof Error ? err.message : 'Failed to save station group');
     } finally {
       setLoading(false);
     }
@@ -163,17 +163,17 @@ export default function PlacementGroupModal({ group, availableParents, storeId, 
           <div>
             <h2 className="text-xl font-bold text-slate-900">
               {group?.id
-                ? (group.is_store_root ? 'Edit Store Configuration' : group.parent_id ? 'Edit Placement' : 'Edit Placement Group')
-                : (defaultParentId && !isParentStoreRoot ? 'Create Placement' : 'Create Placement Group')}
+                ? (group.is_store_root ? 'Edit Store Configuration' : group.parent_id ? 'Edit Station' : 'Edit Station Group')
+                : (defaultParentId && !isParentStoreRoot ? 'Create Station' : 'Create Station Group')}
             </h2>
             {!group?.id && defaultParentId && !isParentStoreRoot && (
               <p className="text-sm text-slate-600 mt-1">
-                Adding a placement to the placement group
+                Adding a station to the station group
               </p>
             )}
             {!group?.id && isParentStoreRoot && (
               <p className="text-sm text-slate-600 mt-1">
-                Adding a tier 1 placement group
+                Adding a tier 1 station group
               </p>
             )}
             {group?.is_store_root && (
@@ -350,7 +350,7 @@ export default function PlacementGroupModal({ group, availableParents, storeId, 
 
           {!isStoreRoot && group?.id && (
             <div className="bg-white rounded-lg border border-slate-200 p-6 shadow-sm">
-              <PlacementDaypartOverrides placementGroupId={group.id} />
+              <StationDaypartOverrides stationGroupId={group.id} />
             </div>
           )}
 
@@ -457,8 +457,8 @@ export default function PlacementGroupModal({ group, availableParents, storeId, 
                 </div>
               ) : (
                 group?.id
-                  ? (group.parent_id && !group.is_store_root ? 'Update Placement' : 'Update Placement Group')
-                  : (defaultParentId && !isParentStoreRoot ? 'Create Placement' : 'Create Placement Group')
+                  ? (group.parent_id && !group.is_store_root ? 'Update Station' : 'Update Station Group')
+                  : (defaultParentId && !isParentStoreRoot ? 'Create Station' : 'Create Station Group')
               )}
             </button>
           </div>

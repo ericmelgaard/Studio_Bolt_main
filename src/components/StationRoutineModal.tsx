@@ -3,7 +3,7 @@ import { X, Plus, Trash2, Calendar, MapPin, ChevronRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import TimeSelector from './TimeSelector';
 
-interface PlacementRoutine {
+interface StationRoutine {
   id?: string;
   theme_id: string;
   placement_id: string;
@@ -14,19 +14,19 @@ interface PlacementRoutine {
   schedule_name?: string;
   status: 'active' | 'inactive' | 'paused';
   priority?: number;
-  placement?: {
+  station?: {
     id: string;
     name: string;
   };
 }
 
-interface PlacementGroup {
+interface StationGroup {
   id: string;
   name: string;
   description: string | null;
 }
 
-interface PlacementRoutineModalProps {
+interface StationRoutineModalProps {
   themeId: string;
   themeName: string;
   onClose: () => void;
@@ -43,9 +43,9 @@ const DAYS_OF_WEEK = [
   { value: 6, label: 'Saturday' }
 ];
 
-export default function PlacementRoutineModal({ themeId, themeName, onClose, onSave }: PlacementRoutineModalProps) {
-  const [routines, setRoutines] = useState<PlacementRoutine[]>([]);
-  const [placements, setPlacements] = useState<PlacementGroup[]>([]);
+export default function StationRoutineModal({ themeId, themeName, onClose, onSave }: StationRoutineModalProps) {
+  const [routines, setRoutines] = useState<StationRoutine[]>([]);
+  const [stations, setStations] = useState<StationGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -54,7 +54,7 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
   const [originalDays, setOriginalDays] = useState<number[]>([]);
   const [originalRoutine, setOriginalRoutine] = useState<typeof newRoutine | null>(null);
   const [showRemovedDaysPrompt, setShowRemovedDaysPrompt] = useState(false);
-  const [removedDaysData, setRemovedDaysData] = useState<{ placementId: string; days: number[]; templateRoutine: any } | null>(null);
+  const [removedDaysData, setRemovedDaysData] = useState<{ stationId: string; days: number[]; templateRoutine: any } | null>(null);
 
   const formRef = useRef<HTMLDivElement>(null);
 
@@ -95,7 +95,7 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
     console.log('loadData called');
     setLoading(true);
 
-    const [routinesResult, placementsResult, settingsResult] = await Promise.all([
+    const [routinesResult, stationsResult, settingsResult] = await Promise.all([
       supabase
         .from('placement_routines')
         .select('*, placement_groups(id, name)')
@@ -117,15 +117,15 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
     } else {
       const transformedRoutines = routinesResult.data?.map((r: any) => ({
         ...r,
-        placement: r.placement_groups
+        station: r.placement_groups
       })) || [];
       setRoutines(transformedRoutines);
     }
 
-    if (placementsResult.error) {
-      console.error('Error loading placements:', placementsResult.error);
+    if (stationsResult.error) {
+      console.error('Error loading stations:', stationsResult.error);
     } else {
-      setPlacements(placementsResult.data || []);
+      setStations(stationsResult.data || []);
     }
 
     if (settingsResult.error) {
@@ -137,7 +137,7 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
     setLoading(false);
   };
 
-  const handleStartEdit = (routine: PlacementRoutine, e?: React.MouseEvent) => {
+  const handleStartEdit = (routine: StationRoutine, e?: React.MouseEvent) => {
     if (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -192,7 +192,7 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
 
   const handleSaveRoutine = async () => {
     if (!newRoutine.placement_id) {
-      alert('Please select a placement');
+      alert('Please select a station');
       return;
     }
 
@@ -237,7 +237,7 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
       }
 
       const wasEditing = editingRoutineId !== null;
-      const placementId = newRoutine.placement_id;
+      const stationId = newRoutine.placement_id;
       const currentRoutine = { ...newRoutine };
 
       setNewRoutine({
@@ -258,15 +258,15 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
         const removedDays = originalDays.filter(d => !currentRoutine.days_of_week.includes(d));
 
         if (removedDays.length > 0) {
-          const { data: allRoutinesForPlacement, error: routinesError } = await supabase
+          const { data: allRoutinesForStation, error: routinesError } = await supabase
             .from('placement_routines')
             .select('days_of_week')
             .eq('theme_id', themeId)
-            .eq('placement_id', placementId);
+            .eq('placement_id', stationId);
 
-          if (!routinesError && allRoutinesForPlacement) {
+          if (!routinesError && allRoutinesForStation) {
             const coveredDays = new Set<number>();
-            allRoutinesForPlacement.forEach(routine => {
+            allRoutinesForStation.forEach(routine => {
               routine.days_of_week.forEach((day: number) => coveredDays.add(day));
             });
 
@@ -274,7 +274,7 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
 
             if (uncoveredDays.length > 0) {
               setRemovedDaysData({
-                placementId,
+                stationId,
                 days: uncoveredDays,
                 templateRoutine: currentRoutine
               });
@@ -334,7 +334,7 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
     }
   };
 
-  const handleToggleStatus = async (routine: PlacementRoutine) => {
+  const handleToggleStatus = async (routine: StationRoutine) => {
     const newStatus = routine.status === 'active' ? 'paused' : 'active';
 
     const { error } = await supabase
@@ -352,20 +352,20 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
 
   const maxCycleWeek = cycleSettings?.cycle_duration_weeks || 4;
 
-  // Group routines by placement
+  // Group routines by station
   const groupedRoutines = routines.reduce((acc, routine) => {
-    const placementId = routine.placement_id;
-    if (!acc[placementId]) {
-      acc[placementId] = [];
+    const stationId = routine.station_id;
+    if (!acc[stationId]) {
+      acc[stationId] = [];
     }
-    acc[placementId].push(routine);
+    acc[stationId].push(routine);
     return acc;
-  }, {} as Record<string, PlacementRoutine[]>);
+  }, {} as Record<string, StationRoutine[]>);
 
-  // Get unscheduled days for a specific placement
-  const getUnscheduledDays = (placementRoutines: PlacementRoutine[]): number[] => {
+  // Get unscheduled days for a specific station
+  const getUnscheduledDays = (stationRoutines: StationRoutine[]): number[] => {
     const scheduledDays = new Set<number>();
-    placementRoutines.forEach(routine => {
+    stationRoutines.forEach(routine => {
       routine.days_of_week.forEach(day => scheduledDays.add(day));
     });
 
@@ -373,10 +373,10 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
     return allDays.filter(day => !scheduledDays.has(day));
   };
 
-  // Get day coverage count for a placement
-  const getDayCoverage = (placementRoutines: PlacementRoutine[]): { scheduled: number; total: number } => {
+  // Get day coverage count for a station
+  const getDayCoverage = (stationRoutines: StationRoutine[]): { scheduled: number; total: number } => {
     const scheduledDays = new Set<number>();
-    placementRoutines.forEach(routine => {
+    stationRoutines.forEach(routine => {
       routine.days_of_week.forEach(day => scheduledDays.add(day));
     });
 
@@ -386,10 +386,10 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
     };
   };
 
-  const handleAddRemainingDays = (placementId: string, unscheduledDays: number[]) => {
-    const templateRoutine = groupedRoutines[placementId][0];
+  const handleAddRemainingDays = (stationId: string, unscheduledDays: number[]) => {
+    const templateRoutine = groupedRoutines[stationId][0];
     setNewRoutine({
-      placement_id: placementId,
+      placement_id: stationId,
       cycle_week: templateRoutine.cycle_week,
       days_of_week: unscheduledDays,
       start_time: templateRoutine.start_time,
@@ -418,8 +418,8 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
       >
         <div className="flex items-center justify-between p-6 border-b border-slate-200">
           <div>
-            <h2 className="text-xl font-bold text-slate-900">Placement Routines</h2>
-            <p className="text-sm text-slate-600 mt-1">Schedule when "{themeName}" runs on placements</p>
+            <h2 className="text-xl font-bold text-slate-900">Station Routines</h2>
+            <p className="text-sm text-slate-600 mt-1">Schedule when "{themeName}" runs on stations</p>
           </div>
           <button
             onClick={onClose}
@@ -444,7 +444,7 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
               <Calendar className="w-16 h-16 text-slate-300 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-slate-900 mb-2">No routines configured</h3>
               <p className="text-slate-600 mb-6">
-                Add placement routines to schedule when this theme should be active
+                Add station routines to schedule when this theme should be active
               </p>
               <button
                 onClick={() => setShowAddForm(true)}
@@ -503,7 +503,7 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
                     <div className="p-4">
                       <div className="flex items-center justify-between">
                         <label className="text-sm font-medium text-slate-700">
-                          Placement
+                          Station
                         </label>
                         <span className="text-xs text-slate-500">Required</span>
                       </div>
@@ -512,8 +512,8 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
                         onChange={(e) => setNewRoutine({ ...newRoutine, placement_id: e.target.value })}
                         className="mt-2 w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-slate-900"
                       >
-                        <option value="">Select a placement...</option>
-                        {placements.map((p) => (
+                        <option value="">Select a station...</option>
+                        {stations.map((p) => (
                           <option key={p.id} value={p.id}>
                             {p.name}
                             {p.description && ` - ${p.description}`}
@@ -589,20 +589,20 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
 
               {routines.length > 0 && (
                 <div className="space-y-6">
-                  {Object.entries(groupedRoutines).map(([placementId, placementRoutines]) => {
-                    const firstRoutine = placementRoutines[0];
-                    const unscheduledDays = getUnscheduledDays(placementRoutines);
-                    const coverage = getDayCoverage(placementRoutines);
+                  {Object.entries(groupedRoutines).map(([stationId, stationRoutines]) => {
+                    const firstRoutine = stationRoutines[0];
+                    const unscheduledDays = getUnscheduledDays(stationRoutines);
+                    const coverage = getDayCoverage(stationRoutines);
                     const hasUnscheduledDays = unscheduledDays.length > 0;
 
                     return (
-                      <div key={placementId} className="space-y-2">
-                        {/* Placement Header */}
+                      <div key={stationId} className="space-y-2">
+                        {/* Station Header */}
                         <div className="px-2">
                           <div className="flex items-center gap-2 mb-2">
                             <MapPin className="w-4 h-4 text-slate-400" />
                             <h3 className="text-sm font-semibold text-slate-900">
-                              {firstRoutine.placement?.name || 'Unknown Placement'}
+                              {firstRoutine.station?.name || 'Unknown Station'}
                             </h3>
                             <div className="flex items-center gap-2 text-xs">
                               <span className="px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700">
@@ -619,7 +619,7 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
 
                         {/* Routine Cards */}
                         <div className="space-y-2">
-                          {placementRoutines.map((routine) => (
+                          {stationRoutines.map((routine) => (
                             <div key={routine.id}>
                               {editingRoutineId === routine.id && showAddForm ? (
                               <div className="bg-blue-50 rounded-lg border-2 border-blue-500 shadow-lg">
@@ -656,7 +656,7 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
                                   <div className="p-4">
                                     <div className="flex items-center justify-between">
                                       <label className="text-sm font-medium text-slate-700">
-                                        Placement
+                                        Station
                                       </label>
                                       <span className="text-xs text-slate-500">Required</span>
                                     </div>
@@ -665,8 +665,8 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
                                       onChange={(e) => setNewRoutine({ ...newRoutine, placement_id: e.target.value })}
                                       className="mt-2 w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-slate-900"
                                     >
-                                      <option value="">Select a placement...</option>
-                                      {placements.map((p) => (
+                                      <option value="">Select a station...</option>
+                                      {stations.map((p) => (
                                         <option key={p.id} value={p.id}>
                                           {p.name}
                                           {p.description && ` - ${p.description}`}
@@ -827,7 +827,7 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
                           {/* Add Schedule for Remaining Days Button */}
                           {hasUnscheduledDays && (
                             <button
-                              onClick={() => handleAddRemainingDays(placementId, unscheduledDays)}
+                              onClick={() => handleAddRemainingDays(stationId, unscheduledDays)}
                               disabled={showAddForm}
                               className="w-full p-3 bg-white border-2 border-dashed border-slate-300 rounded-lg hover:border-slate-400 hover:bg-slate-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
@@ -862,8 +862,8 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
           <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
             <h3 className="text-lg font-semibold mb-2">Unscheduled Days Detected</h3>
             <p className="text-slate-600 mb-4">
-              You removed {removedDaysData.days.map(d => DAYS_OF_WEEK[d].label).join(', ')} from this placement routine,
-              and {removedDaysData.days.length === 1 ? 'this day is' : 'these days are'} not covered by any other routines for this placement.
+              You removed {removedDaysData.days.map(d => DAYS_OF_WEEK[d].label).join(', ')} from this station routine,
+              and {removedDaysData.days.length === 1 ? 'this day is' : 'these days are'} not covered by any other routines for this station.
             </p>
             <p className="text-slate-700 font-medium mb-4">
               Would you like to create a new routine for {removedDaysData.days.length === 1 ? 'this day' : 'these days'}?
@@ -881,7 +881,7 @@ export default function PlacementRoutineModal({ themeId, themeName, onClose, onS
               <button
                 onClick={() => {
                   setNewRoutine({
-                    placement_id: removedDaysData.placementId,
+                    placement_id: removedDaysData.stationId,
                     cycle_week: removedDaysData.templateRoutine.cycle_week,
                     days_of_week: removedDaysData.days,
                     start_time: removedDaysData.templateRoutine.start_time,

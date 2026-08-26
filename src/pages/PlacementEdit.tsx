@@ -3,7 +3,7 @@ import { Save, AlertCircle, Clock, Utensils, Palette, Nfc, MapPin, Phone, Globe,
 import { supabase } from '../lib/supabase';
 import Breadcrumb from '../components/Breadcrumb';
 import SiteDaypartManager from '../components/SiteDaypartManager';
-import PlacementDaypartOverrides from '../components/PlacementDaypartOverrides';
+import StationDaypartOverrides from '../components/StationDaypartOverrides';
 import TimeSelector from '../components/TimeSelector';
 
 interface PlacementGroup {
@@ -690,7 +690,7 @@ export default function PlacementEdit({ placementId, storeId, parentId, conceptN
                 ref={(el) => (sectionRefs.current['daypart-overrides'] = el)}
                 className="bg-white rounded-lg border border-slate-200 p-6 shadow-sm scroll-mt-20"
               >
-                <PlacementDaypartOverrides placementGroupId={placementId} />
+                <StationDaypartOverrides stationGroupId={placementId} />
               </div>
             )}
 

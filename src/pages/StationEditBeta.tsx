@@ -2,10 +2,10 @@ import { useState, useEffect, FormEvent, useRef } from 'react';
 import { Save, AlertCircle, Clock, Utensils, Palette, Nfc, MapPin, Phone, Globe, X, Info, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import SiteDaypartManager from '../components/SiteDaypartManager';
-import PlacementDaypartOverrides from '../components/PlacementDaypartOverrides';
+import StationDaypartOverrides from '../components/StationDaypartOverrides';
 import TimeSelector from '../components/TimeSelector';
 
-interface PlacementGroup {
+interface StationGroup {
   id?: string;
   name?: string;
   description?: string | null;
@@ -22,14 +22,14 @@ interface PlacementGroup {
   operating_hours?: Record<string, any>;
 }
 
-interface PlacementEditBetaProps {
-  placementId?: string;
+interface StationEditBetaProps {
+  stationId?: string;
   storeId?: number;
   parentId?: string | null;
   conceptName?: string;
   companyName?: string;
   storeName?: string;
-  placementName?: string;
+  stationName?: string;
   onBack: () => void;
   onSave: () => void;
   onDelete?: () => void;
@@ -38,11 +38,11 @@ interface PlacementEditBetaProps {
 
 const DEVICE_SIZES = ['4.2"', '5"', '7"'];
 
-export default function PlacementEditBeta({ placementId, storeId, parentId, conceptName, companyName, storeName, placementName, onBack, onSave, onDelete, onNavigate }: PlacementEditBetaProps) {
+export default function StationEditBeta({ stationId, storeId, parentId, conceptName, companyName, storeName, stationName, onBack, onSave, onDelete, onNavigate }: StationEditBetaProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [availableParents, setAvailableParents] = useState<PlacementGroup[]>([]);
+  const [availableParents, setAvailableParents] = useState<StationGroup[]>([]);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -75,7 +75,7 @@ export default function PlacementEditBeta({ placementId, storeId, parentId, conc
 
   useEffect(() => {
     loadData();
-  }, [placementId, storeId]);
+  }, [stationId, storeId]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -104,11 +104,11 @@ export default function PlacementEditBeta({ placementId, storeId, parentId, conc
     return () => {
       window.removeEventListener('scroll', handleScroll);
     };
-  }, [isStoreRoot, placementId]);
+  }, [isStoreRoot, stationId]);
 
   const checkIfDirty = () => {
     if (!originalDataRef.current) {
-      return placementId ? false : true;
+      return stationId ? false : true;
     }
 
     const original = originalDataRef.current;
@@ -129,16 +129,16 @@ export default function PlacementEditBeta({ placementId, storeId, parentId, conc
   const loadData = async () => {
     setLoading(true);
 
-    if (placementId) {
+    if (stationId) {
       const { data, error: fetchError } = await supabase
         .from('placement_groups')
         .select('*')
-        .eq('id', placementId)
+        .eq('id', stationId)
         .maybeSingle();
 
       if (fetchError) {
-        console.error('Error loading placement:', fetchError);
-        setError('Failed to load placement');
+        console.error('Error loading station:', fetchError);
+        setError('Failed to load station');
       } else if (data) {
         const loadedFormData = {
           name: data.name || '',
@@ -179,7 +179,7 @@ export default function PlacementEditBeta({ placementId, storeId, parentId, conc
         .order('name');
 
       if (parentsData) {
-        const filtered = parentsData.filter(p => p.id !== placementId);
+        const filtered = parentsData.filter(p => p.id !== stationId);
         setAvailableParents(filtered);
       }
     }
@@ -201,7 +201,7 @@ export default function PlacementEditBeta({ placementId, storeId, parentId, conc
         meal_stations: mealStations,
         templates: templates,
         nfc_url: formData.nfc_url || null,
-        ...(!placementId && storeId && { store_id: storeId }),
+        ...(!stationId && storeId && { store_id: storeId }),
         ...(isStoreRoot && {
           address: formData.address || null,
           timezone: formData.timezone || 'America/New_York',
@@ -210,11 +210,11 @@ export default function PlacementEditBeta({ placementId, storeId, parentId, conc
         }),
       };
 
-      if (placementId) {
+      if (stationId) {
         const { error: updateError } = await supabase
           .from('placement_groups')
           .update(data)
-          .eq('id', placementId);
+          .eq('id', stationId);
 
         if (updateError) throw updateError;
       } else {
@@ -235,7 +235,7 @@ export default function PlacementEditBeta({ placementId, storeId, parentId, conc
       setIsDirty(false);
       onSave();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save placement');
+      setError(err instanceof Error ? err.message : 'Failed to save station');
     } finally {
       setSaving(false);
     }
@@ -339,12 +339,12 @@ export default function PlacementEditBeta({ placementId, storeId, parentId, conc
       );
     }
 
-    if (isStoreRoot && placementId) {
+    if (isStoreRoot && stationId) {
       sections.push({ id: 'daypart-config', label: 'Daypart Configuration', icon: Clock });
     }
 
-    if (!isStoreRoot && placementId) {
-      sections.push({ id: 'daypart-overrides', label: 'Placement Schedules', icon: Clock });
+    if (!isStoreRoot && stationId) {
+      sections.push({ id: 'daypart-overrides', label: 'Station Schedules', icon: Clock });
     }
 
     sections.push(
@@ -353,7 +353,7 @@ export default function PlacementEditBeta({ placementId, storeId, parentId, conc
       { id: 'nfc-settings', label: 'NFC Settings', icon: Nfc }
     );
 
-    if (onDelete && placementId) {
+    if (onDelete && stationId) {
       sections.push({ id: 'danger-zone', label: 'Danger Zone', icon: Trash2 });
     }
 
@@ -608,23 +608,23 @@ export default function PlacementEditBeta({ placementId, storeId, parentId, conc
             </>
           )}
 
-            {isStoreRoot && placementId && (
+            {isStoreRoot && stationId && (
               <div
                 id="daypart-config"
                 ref={(el) => (sectionRefs.current['daypart-config'] = el)}
                 className="bg-white rounded-lg border border-slate-200 p-6 shadow-sm scroll-mt-20"
               >
-                <SiteDaypartManager placementGroupId={placementId} />
+                <SiteDaypartManager placementGroupId={stationId} />
               </div>
             )}
 
-            {!isStoreRoot && placementId && (
+            {!isStoreRoot && stationId && (
               <div
                 id="daypart-overrides"
                 ref={(el) => (sectionRefs.current['daypart-overrides'] = el)}
                 className="bg-white rounded-lg border border-slate-200 p-6 shadow-sm scroll-mt-20"
               >
-                <PlacementDaypartOverrides placementGroupId={placementId} />
+                <StationDaypartOverrides placementGroupId={stationId} />
               </div>
             )}
 
@@ -723,7 +723,7 @@ export default function PlacementEditBeta({ placementId, storeId, parentId, conc
             />
           </div>
 
-            {onDelete && placementId && (
+            {onDelete && stationId && (
               <div
                 id="danger-zone"
                 ref={(el) => (sectionRefs.current['danger-zone'] = el)}
@@ -734,7 +734,7 @@ export default function PlacementEditBeta({ placementId, storeId, parentId, conc
                   <h3 className="text-lg font-semibold text-slate-900">Danger Zone</h3>
                 </div>
                 <p className="text-sm text-slate-600 mb-4">
-                  Once you delete this placement, there is no going back. This action cannot be undone.
+                  Once you delete this station, there is no going back. This action cannot be undone.
                 </p>
                 <button
                   type="button"
@@ -742,7 +742,7 @@ export default function PlacementEditBeta({ placementId, storeId, parentId, conc
                   className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2 font-medium"
                 >
                   <Trash2 className="w-4 h-4" />
-                  Delete Placement
+                  Delete Station
                 </button>
               </div>
             )}
@@ -770,7 +770,7 @@ export default function PlacementEditBeta({ placementId, storeId, parentId, conc
                     ) : (
                       <>
                         <Save className="w-4 h-4" />
-                        {placementId ? 'Update Placement' : 'Create Placement'}
+                        {stationId ? 'Update Station' : 'Create Station'}
                       </>
                     )}
                   </button>

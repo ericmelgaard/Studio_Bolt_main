@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Plus, Store, Edit2, Trash2, MapPin, Building2, Layers, HelpCircle, FileText, Grid3x3, Settings, BarChart3, Copy, Check, Menu } from 'lucide-react';
+import { ArrowLeft, Plus, Store, CreditCard as Edit2, Trash2, MapPin, Building2, Layers, HelpCircle, FileText, Grid3x3, Settings, BarChart3, Copy, Check, Menu } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import PlacementGroupModal from '../components/PlacementGroupModal';
+import StationGroupModal from '../components/StationGroupModal';
 import StoresGrid from '../components/StoresGrid';
 import StoreModal from '../components/StoreModal';
 import CompanyModal from '../components/CompanyModal';
@@ -791,7 +791,7 @@ export default function StoreManagement({ onBack }: StoreManagementProps) {
       </div>
 
       {showPlacementModal && (
-        <PlacementGroupModal
+        <StationGroupModal
           group={editingItem}
           availableParents={availableParents}
           storeId={location.store?.id}

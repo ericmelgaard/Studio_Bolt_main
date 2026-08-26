@@ -13,12 +13,12 @@ import CompanyModal from '../components/CompanyModal';
 import StoreModal from '../components/StoreModal';
 import CycleSettingsCard from '../components/CycleSettingsCard';
 import StoreEditBeta from './StoreEditBeta';
-import PlacementEditBeta from './PlacementEditBeta';
+import StationEditBeta from './StationEditBeta';
 import CompanyEditBeta from './CompanyEditBeta';
 import ConceptEditBeta from './ConceptEditBeta';
 import * as Icons from 'lucide-react';
 
-interface PlacementGroup {
+interface StationGroup {
   id: string;
   name: string;
   description: string | null;
@@ -80,18 +80,18 @@ export default function SiteConfigurationBeta({ role, userId }: SiteConfiguratio
   const { location, setLocation, canNavigateBack, getPreviousLocation } = useLocation(role, userId);
 
   // Navigation state
-  const [viewLevel, setViewLevel] = useState<'wand' | 'concept' | 'concept-edit' | 'company' | 'company-edit' | 'store' | 'store-edit' | 'placement-edit'>('wand');
+  const [viewLevel, setViewLevel] = useState<'wand' | 'concept' | 'concept-edit' | 'company' | 'company-edit' | 'store' | 'store-edit' | 'station-edit'>('wand');
   const [selectedConcept, setSelectedConcept] = useState<ConceptData | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<CompanyData | null>(null);
   const [selectedStore, setSelectedStore] = useState<StoreData | null>(null);
-  const [editingPlacement, setEditingPlacement] = useState<PlacementGroup | null>(null);
+  const [editingStation, setEditingStation] = useState<StationGroup | null>(null);
 
   // Data state
   const [concepts, setConcepts] = useState<ConceptData[]>([]);
   const [companies, setCompanies] = useState<CompanyData[]>([]);
   const [stores, setStores] = useState<StoreData[]>([]);
-  const [placements, setPlacements] = useState<PlacementGroup[]>([]);
-  const [storeRoot, setStoreRoot] = useState<PlacementGroup | null>(null);
+  const [stations, setStations] = useState<StationGroup[]>([]);
+  const [storeRoot, setStoreRoot] = useState<StationGroup | null>(null);
   const [operationSchedules, setOperationSchedules] = useState<any[]>([]);
 
   // Modal state
@@ -99,7 +99,7 @@ export default function SiteConfigurationBeta({ role, userId }: SiteConfiguratio
   const [showCompanyModal, setShowCompanyModal] = useState(false);
   const [showStoreModal, setShowStoreModal] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
-  const [parentForNewPlacement, setParentForNewPlacement] = useState<string | null>(null);
+  const [parentForNewStation, setParentForNewStation] = useState<string | null>(null);
 
   // Loading state
   const [loading, setLoading] = useState(true);
@@ -297,9 +297,9 @@ export default function SiteConfigurationBeta({ role, userId }: SiteConfiguratio
       .order('name');
 
     if (placementsError) {
-      console.error('Error loading placements:', placementsError);
+      console.error('Error loading stations:', placementsError);
     } else {
-      setPlacements(placementsData || []);
+      setStations(placementsData || []);
     }
 
     const { data: scheduleData, error: scheduleError } = await supabase
@@ -336,13 +336,13 @@ export default function SiteConfigurationBeta({ role, userId }: SiteConfiguratio
 
   const handleEditStore = () => {
     if (storeRoot) {
-      setEditingPlacement(storeRoot);
-      setViewLevel('placement-edit');
+      setEditingStation(storeRoot);
+      setViewLevel('station-edit');
     }
   };
 
-  const handleAddPlacement = (parentId: string | null = null) => {
-    setEditingPlacement({
+  const handleAddStation = (parentId: string | null = null) => {
+    setEditingStation({
       id: undefined,
       name: '',
       parent_id: parentId,
@@ -358,40 +358,40 @@ export default function SiteConfigurationBeta({ role, userId }: SiteConfiguratio
       operating_hours: {},
       description: null,
       created_at: new Date().toISOString()
-    } as PlacementGroup);
-    setParentForNewPlacement(parentId);
-    setViewLevel('placement-edit');
+    } as StationGroup);
+    setParentForNewStation(parentId);
+    setViewLevel('station-edit');
   };
 
-  const handleEditPlacement = (placement: PlacementGroup) => {
-    setEditingPlacement(placement);
-    setViewLevel('placement-edit');
+  const handleEditStation = (station: StationGroup) => {
+    setEditingStation(station);
+    setViewLevel('station-edit');
   };
 
-  const handleDeletePlacement = async (placement: PlacementGroup) => {
-    if (placement.is_store_root) {
-      alert('Cannot delete store root placement');
+  const handleDeleteStation = async (station: StationGroup) => {
+    if (station.is_store_root) {
+      alert('Cannot delete store root station');
       return;
     }
 
-    if (!confirm(`Are you sure you want to delete "${placement.name}"?`)) {
+    if (!confirm(`Are you sure you want to delete "${station.name}"?`)) {
       return;
     }
 
     const { error } = await supabase
       .from('placement_groups')
       .delete()
-      .eq('id', placement.id);
+      .eq('id', station.id);
 
     if (error) {
-      console.error('Error deleting placement:', error);
-      alert(`Failed to delete placement: ${error.message}`);
+      console.error('Error deleting station:', error);
+      alert(`Failed to delete station: ${error.message}`);
     } else {
       loadStoreLevelData();
     }
   };
 
-  const availableParents = placements.filter((p) => p.id !== editingItem?.id);
+  const availableParents = stations.filter((p) => p.id !== editingItem?.id);
   if (storeRoot && editingItem?.id !== storeRoot.id) {
     availableParents.unshift(storeRoot);
   }
@@ -416,10 +416,10 @@ export default function SiteConfigurationBeta({ role, userId }: SiteConfiguratio
       ];
     }
 
-    if (viewLevel === 'placement-edit') {
+    if (viewLevel === 'station-edit') {
       return [
         { label: 'Site Configuration', onClick: () => setViewLevel('store') },
-        { label: 'Edit Placement' }
+        { label: 'Edit Station' }
       ];
     }
 
@@ -818,17 +818,17 @@ export default function SiteConfigurationBeta({ role, userId }: SiteConfiguratio
         title: selectedStore?.name || 'Store Settings',
         subtitle: 'Configure store details, operating hours, and daypart schedules'
       };
-    } else if (viewLevel === 'placement-edit') {
+    } else if (viewLevel === 'station-edit') {
       return {
         icon: MapPin,
-        title: editingPlacement?.name || 'Placement Configuration',
-        subtitle: 'Configure placement settings and menu assignments'
+        title: editingStation?.name || 'Station Configuration',
+        subtitle: 'Configure station settings and menu assignments'
       };
     } else {
       return {
         icon: Store,
         title: 'Store Configuration',
-        subtitle: 'Manage store settings and placement groups'
+        subtitle: 'Manage store settings and stations'
       };
     }
   };
@@ -852,31 +852,31 @@ export default function SiteConfigurationBeta({ role, userId }: SiteConfiguratio
           <p className="text-slate-600">{headerContent.subtitle}</p>
         </div>
 
-        {viewLevel === 'placement-edit' ? (
-          <PlacementEditBeta
-            placementId={editingPlacement?.id}
-            storeId={editingPlacement?.store_id || selectedStore?.id || undefined}
-            parentId={parentForNewPlacement || editingPlacement?.parent_id}
+        {viewLevel === 'station-edit' ? (
+          <StationEditBeta
+            stationId={editingStation?.id}
+            storeId={editingStation?.store_id || selectedStore?.id || undefined}
+            parentId={parentForNewStation || editingStation?.parent_id}
             conceptName={selectedConcept?.name}
             companyName={selectedCompany?.name}
             storeName={selectedStore?.name}
-            placementName={editingPlacement?.name}
+            stationName={editingStation?.name}
             onBack={() => {
               setViewLevel('store');
-              setEditingPlacement(null);
-              setParentForNewPlacement(null);
+              setEditingStation(null);
+              setParentForNewStation(null);
             }}
             onSave={async () => {
               setViewLevel('store');
-              setEditingPlacement(null);
-              setParentForNewPlacement(null);
+              setEditingStation(null);
+              setParentForNewStation(null);
               await loadStoreLevelData();
             }}
-            onDelete={editingPlacement?.id && !editingPlacement?.is_store_root ? async () => {
-              await handleDeletePlacement(editingPlacement);
+            onDelete={editingStation?.id && !editingStation?.is_store_root ? async () => {
+              await handleDeleteStation(editingStation);
               setViewLevel('store');
-              setEditingPlacement(null);
-              setParentForNewPlacement(null);
+              setEditingStation(null);
+              setParentForNewStation(null);
             } : undefined}
             onNavigate={(level) => {
               if (level === 'wand') {
@@ -889,8 +889,8 @@ export default function SiteConfigurationBeta({ role, userId }: SiteConfiguratio
                 setLocation({ concept: selectedConcept, company: selectedCompany, store: selectedStore });
               }
               setViewLevel('store');
-              setEditingPlacement(null);
-              setParentForNewPlacement(null);
+              setEditingStation(null);
+              setParentForNewStation(null);
             }}
           />
         ) : viewLevel === 'store-edit' && selectedStore && selectedCompany ? (
@@ -1037,49 +1037,49 @@ export default function SiteConfigurationBeta({ role, userId }: SiteConfiguratio
               <div className="p-6 border-b border-slate-200 bg-gradient-to-r from-amber-50 to-slate-50">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-xl font-bold text-slate-900 mb-1">Placements</h2>
+                    <h2 className="text-xl font-bold text-slate-900 mb-1">Stations</h2>
                     <p className="text-sm text-slate-600">
-                      Organize areas within the store with hierarchical placements
+                      Organize areas within the store with hierarchical stations
                     </p>
                   </div>
                   <button
-                    onClick={() => handleAddPlacement(storeRoot?.id || null)}
+                    onClick={() => handleAddStation(storeRoot?.id || null)}
                     disabled={!storeRoot}
                     className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 text-white rounded-lg font-medium hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Plus className="w-4 h-4" />
-                    Add Placement Group
+                    Add Station
                   </button>
                 </div>
               </div>
 
               <div className="p-6">
-                {placements.length === 0 ? (
+                {stations.length === 0 ? (
                   <div className="text-center py-4">
                     <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
                       <Store className="w-8 h-8 text-amber-600" />
                     </div>
-                    <h3 className="text-base font-semibold text-slate-900 mb-2">No placements yet</h3>
+                    <h3 className="text-base font-semibold text-slate-900 mb-2">No stations yet</h3>
                     <p className="text-slate-600 mb-4 text-sm">
-                      Create placements to organize different areas within the store
+                      Create stations to organize different areas within the store
                     </p>
                   </div>
                 ) : (
                   <div className="space-y-3">
                     {(() => {
-                      const calculateDepth = (placementId: string, visited = new Set<string>()): number => {
-                        if (visited.has(placementId)) return 0;
-                        visited.add(placementId);
+                      const calculateDepth = (stationId: string, visited = new Set<string>()): number => {
+                        if (visited.has(stationId)) return 0;
+                        visited.add(stationId);
 
-                        const placement = placements.find(p => p.id === placementId);
-                        if (!placement || !placement.parent_id || placement.parent_id === storeRoot?.id) {
+                        const station = stations.find(p => p.id === stationId);
+                        if (!station || !station.parent_id || station.parent_id === storeRoot?.id) {
                           return 0;
                         }
-                        return 1 + calculateDepth(placement.parent_id, visited);
+                        return 1 + calculateDepth(station.parent_id, visited);
                       };
 
-                      const buildHierarchy = (parentId: string | null | undefined): PlacementGroup[] => {
-                        const children = placements
+                      const buildHierarchy = (parentId: string | null | undefined): StationGroup[] => {
+                        const children = stations
                           .filter(p => {
                             if (parentId === storeRoot?.id) {
                               return p.parent_id === parentId || p.parent_id === null;
@@ -1088,7 +1088,7 @@ export default function SiteConfigurationBeta({ role, userId }: SiteConfiguratio
                           })
                           .sort((a, b) => a.name.localeCompare(b.name));
 
-                        const result: PlacementGroup[] = [];
+                        const result: StationGroup[] = [];
                         for (const child of children) {
                           result.push(child);
                           const descendants = buildHierarchy(child.id);
@@ -1097,33 +1097,33 @@ export default function SiteConfigurationBeta({ role, userId }: SiteConfiguratio
                         return result;
                       };
 
-                      return buildHierarchy(storeRoot?.id).map((placement) => {
-                        const parentName = placement.parent_id
-                          ? (placements.find(p => p.id === placement.parent_id)?.name || storeRoot?.name || 'Unknown')
+                      return buildHierarchy(storeRoot?.id).map((station) => {
+                        const parentName = station.parent_id
+                          ? (stations.find(p => p.id === station.parent_id)?.name || storeRoot?.name || 'Unknown')
                           : storeRoot?.name || 'Store Root';
 
-                        const depth = calculateDepth(placement.id);
-                        const childCount = placements.filter(p => p.parent_id === placement.id).length;
+                        const depth = calculateDepth(station.id);
+                        const childCount = stations.filter(p => p.parent_id === station.id).length;
 
                         return (
-                          <div key={placement.id} style={{ marginLeft: `${depth * 2.5}rem` }}>
+                          <div key={station.id} style={{ marginLeft: `${depth * 2.5}rem` }}>
                             <button
-                              onClick={() => handleEditPlacement(placement)}
+                              onClick={() => handleEditStation(station)}
                               className="w-full flex items-center gap-4 p-4 border border-slate-200 rounded-lg hover:bg-amber-50 hover:border-amber-300 transition-all group text-left hover:shadow-sm"
                             >
                               <div className="w-1 h-10 bg-amber-400 rounded-full" />
                               <Layers className="w-5 h-5 text-amber-600 flex-shrink-0" />
                               <div className="flex-1 min-w-0">
-                                <h3 className="font-semibold text-slate-900">{placement.name}</h3>
-                                {placement.description && (
-                                  <p className="text-sm text-slate-600">{placement.description}</p>
+                                <h3 className="font-semibold text-slate-900">{station.name}</h3>
+                                {station.description && (
+                                  <p className="text-sm text-slate-600">{station.description}</p>
                                 )}
                                 <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
                                   <span>Parent: {parentName}</span>
                                   {childCount > 0 && (
                                     <>
                                       <span>•</span>
-                                      <span>{childCount} child placement{childCount !== 1 ? 's' : ''}</span>
+                                      <span>{childCount} sub-station{childCount !== 1 ? 's' : ''}</span>
                                     </>
                                   )}
                                 </div>
@@ -1132,7 +1132,7 @@ export default function SiteConfigurationBeta({ role, userId }: SiteConfiguratio
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleAddPlacement(placement.id);
+                                    handleAddStation(station.id);
                                   }}
                                   className="px-3 py-2 text-sm font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors flex items-center gap-2 opacity-0 group-hover:opacity-100"
                                 >
