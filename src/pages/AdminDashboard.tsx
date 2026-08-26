@@ -1,5 +1,5 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
-import { HelpCircle, FileText, Building2, Users, Store, Settings, Monitor, Tag, Package, BarChart3, Layers, ImageIcon, MapPin, Database, Sliders, ChevronDown, Palette, Clock, Cpu, Images, Paintbrush } from 'lucide-react';
+import { HelpCircle, FileText, Building2, Users, Store, Settings, Monitor, Tag, Package, BarChart3, Layers, Image as ImageIcon, MapPin, Database, Sliders, ChevronDown, Palette, Clock, Cpu, Images, Paintbrush, UtensilsCrossed, Calendar as CalendarIcon } from 'lucide-react';
 import NotificationPanel from '../components/NotificationPanel';
 import UserMenu from '../components/UserMenu';
 import Toast from '../components/Toast';
@@ -27,6 +27,9 @@ const DevicesDisplaysDashboard = lazy(() => import('./DevicesDisplaysDashboard')
 const DisplayTypesManagement = lazy(() => import('./DisplayTypesManagement'));
 const AssetLibrary = lazy(() => import('./AssetLibrary'));
 const ThemeBuilderBeta = lazy(() => import('./ThemeBuilderBeta'));
+const BrandWorkspace = lazy(() => import('./BrandWorkspace'));
+const BrandMenuManagement = lazy(() => import('./BrandMenuManagement'));
+const StationScheduling = lazy(() => import('./StationScheduling'));
 const LocationSelector = lazy(() => import('../components/LocationSelector'));
 const HeaderNavigation = lazy(() => import('../components/HeaderNavigation'));
 const AddUserModal = lazy(() => import('../components/AddUserModal'));
@@ -67,7 +70,7 @@ interface Store {
   company_id: number;
 }
 
-type ViewType = 'dashboard' | 'signage' | 'labels' | 'products' | 'resources' | 'themes' | 'themes-beta' | 'theme-builder-beta' | 'integration' | 'integration-dashboard' | 'integration-access' | 'wand-templates' | 'wand-mapper' | 'integration-sources' | 'core-attributes' | 'wand-products' | 'users' | 'edit-user' | 'dayparts' | 'sites-beta' | 'devices-displays' | 'display-types' | 'asset-library';
+type ViewType = 'dashboard' | 'signage' | 'labels' | 'products' | 'resources' | 'themes' | 'themes-beta' | 'theme-builder-beta' | 'integration' | 'integration-dashboard' | 'integration-access' | 'wand-templates' | 'wand-mapper' | 'integration-sources' | 'core-attributes' | 'wand-products' | 'users' | 'edit-user' | 'dayparts' | 'sites-beta' | 'devices-displays' | 'display-types' | 'asset-library' | 'brands' | 'brand-menus' | 'station-scheduling';
 
 export default function AdminDashboard({ onBack, user }: AdminDashboardProps) {
   const { location, setLocation, getLocationDisplay, resetLocation } = useLocation('admin', user.id);
@@ -76,6 +79,7 @@ export default function AdminDashboard({ onBack, user }: AdminDashboardProps) {
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [themeContext, setThemeContext] = useState<{ themeId: string; themeName: string } | null>(null);
+  const [brandContext, setBrandContext] = useState<{ id: number; name: string } | null>(null);
 
   // Local state synced with global location context
   const [selectedConcept, setSelectedConcept] = useState<Concept | null>(null);
@@ -125,6 +129,8 @@ export default function AdminDashboard({ onBack, user }: AdminDashboardProps) {
       { id: 'display-types' as ViewType, label: 'Display Types', icon: Layers },
     ],
     control: [
+      { id: 'brands' as ViewType, label: 'Brands', icon: UtensilsCrossed },
+      { id: 'station-scheduling' as ViewType, label: 'Station Scheduling', icon: CalendarIcon },
       { id: 'signage' as ViewType, label: 'Signage', icon: Monitor },
       { id: 'labels' as ViewType, label: 'Labels', icon: Tag },
       { id: 'products' as ViewType, label: 'Products', icon: Package },
@@ -465,6 +471,11 @@ export default function AdminDashboard({ onBack, user }: AdminDashboardProps) {
                 }}
               />
             )}
+            {currentView === 'brands' && <BrandWorkspace onBack={() => setCurrentView('dashboard')} />}
+            {currentView === 'brand-menus' && brandContext && (
+              <BrandMenuManagement brandId={brandContext.id} brandName={brandContext.name} onBack={() => setCurrentView('brands')} />
+            )}
+            {currentView === 'station-scheduling' && <StationScheduling />}
             {currentView === 'sites-beta' && <SiteConfigurationBeta role="admin" userId={user.id} />}
             {currentView === 'devices-displays' && <DevicesDisplaysDashboard />}
             {currentView === 'display-types' && <DisplayTypesManagement />}
