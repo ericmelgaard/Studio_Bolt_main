@@ -1,8 +1,9 @@
 import { useState, useEffect, FormEvent, useRef } from 'react';
-import { Save, AlertCircle, Clock, Info, Calendar, Globe, MapPin } from 'lucide-react';
+import { Save, AlertCircle, Clock, Info, Calendar, Globe, MapPin, LayoutGrid } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import StoreDaypartDefinitions from '../components/StoreDaypartDefinitions';
 import StoreOperationHours from '../components/StoreOperationHours';
+import StationScheduling from './StationScheduling';
 
 const TIMEZONES = [
   { value: 'America/New_York', label: 'Eastern Time (ET)', offset: 'UTC-5/-4' },
@@ -70,6 +71,7 @@ export default function StoreEditBeta({ storeId, companyId, conceptName, company
   const [activeSection, setActiveSection] = useState('basic-info');
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  const [showStationScheduling, setShowStationScheduling] = useState(false);
 
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const originalDataRef = useRef<StoreData | null>(null);
@@ -290,6 +292,7 @@ export default function StoreEditBeta({ storeId, companyId, conceptName, company
 
     if (storeId) {
       sections.push({ id: 'daypart-definitions', label: 'Daypart Schedules', icon: Clock });
+      sections.push({ id: 'station-scheduling', label: 'Station Scheduling', icon: LayoutGrid });
     }
 
     return sections;
@@ -300,6 +303,16 @@ export default function StoreEditBeta({ storeId, companyId, conceptName, company
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
         <div className="w-8 h-8 border-3 border-slate-200 border-t-blue-600 rounded-full animate-spin" />
       </div>
+    );
+  }
+
+  if (showStationScheduling && storeId) {
+    return (
+      <StationScheduling
+        storeId={storeId}
+        storeName={formData.name || storeName || 'Store'}
+        onBack={() => setShowStationScheduling(false)}
+      />
     );
   }
 

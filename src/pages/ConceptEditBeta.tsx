@@ -1,10 +1,11 @@
 import { useState, useEffect, FormEvent, useRef } from 'react';
-import { Save, AlertCircle, Info, Palette, Image, Copy, Check, Trash2, Building2 } from 'lucide-react';
+import { Save, AlertCircle, Info, Palette, Image, Copy, Check, Trash2, Building2, UtensilsCrossed } from 'lucide-react';
 import * as Icons from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Breadcrumb from '../components/Breadcrumb';
 import IconPicker from '../components/IconPicker';
 import ColorPicker from '../components/ColorPicker';
+import BrandMenuManagement from './BrandMenuManagement';
 
 interface ConceptData {
   id?: number;
@@ -13,6 +14,8 @@ interface ConceptData {
   icon?: string;
   brand_primary_color?: string;
   brand_secondary_color?: string;
+  brand_type?: string;
+  scheduling_mode?: string;
 }
 
 interface ConceptEditBetaProps {
@@ -33,7 +36,9 @@ export default function ConceptEditBeta({ conceptId, conceptName, onBack, onSave
     description: '',
     icon: undefined,
     brand_primary_color: undefined,
-    brand_secondary_color: undefined
+    brand_secondary_color: undefined,
+    brand_type: 'enterprise',
+    scheduling_mode: 'cycle'
   });
 
   const [showIconPicker, setShowIconPicker] = useState(false);
@@ -42,6 +47,7 @@ export default function ConceptEditBeta({ conceptId, conceptName, onBack, onSave
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  const [showMenuManagement, setShowMenuManagement] = useState(false);
 
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const originalDataRef = useRef<ConceptData | null>(null);
@@ -111,7 +117,9 @@ export default function ConceptEditBeta({ conceptId, conceptName, onBack, onSave
           description: data.description || '',
           icon: data.icon || undefined,
           brand_primary_color: data.brand_primary_color || undefined,
-          brand_secondary_color: data.brand_secondary_color || undefined
+          brand_secondary_color: data.brand_secondary_color || undefined,
+          brand_type: data.brand_type || 'enterprise',
+          scheduling_mode: data.scheduling_mode || 'cycle'
         };
         setFormData(loadedFormData);
         originalDataRef.current = loadedFormData;
@@ -140,7 +148,9 @@ export default function ConceptEditBeta({ conceptId, conceptName, onBack, onSave
         description: formData.description || null,
         icon: formData.icon || null,
         brand_primary_color: formData.brand_primary_color || null,
-        brand_secondary_color: formData.brand_secondary_color || null
+        brand_secondary_color: formData.brand_secondary_color || null,
+        brand_type: formData.brand_type || 'enterprise',
+        scheduling_mode: formData.scheduling_mode || 'cycle'
       };
 
       if (conceptId) {
@@ -277,6 +287,7 @@ export default function ConceptEditBeta({ conceptId, conceptName, onBack, onSave
   const getSections = () => {
     return [
       { id: 'basic-info', label: 'Basic Information', icon: Info },
+      { id: 'brand-settings', label: 'Brand Settings', icon: Info },
       { id: 'visual-identity', label: 'Visual Identity', icon: Image },
       { id: 'brand-colors', label: 'Brand Colors', icon: Palette }
     ];
@@ -301,6 +312,16 @@ export default function ConceptEditBeta({ conceptId, conceptName, onBack, onSave
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
         <div className="w-8 h-8 border-3 border-slate-200 border-t-blue-600 rounded-full animate-spin" />
       </div>
+    );
+  }
+
+  if (showMenuManagement && conceptId) {
+    return (
+      <BrandMenuManagement
+        brandId={conceptId}
+        brandName={formData.name || conceptName || 'Brand'}
+        onBack={() => setShowMenuManagement(false)}
+      />
     );
   }
 
@@ -491,6 +512,58 @@ export default function ConceptEditBeta({ conceptId, conceptName, onBack, onSave
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="Enter concept description"
                     />
+                  </div>
+                </div>
+              </div>
+
+              <div
+                id="brand-settings"
+                ref={(el) => (sectionRefs.current['brand-settings'] = el)}
+                className="bg-white rounded-lg border border-slate-200 p-6 shadow-sm scroll-mt-20"
+              >
+                <h2 className="text-lg font-semibold text-slate-900 mb-4">Brand Settings</h2>
+                {conceptId && (
+                  <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="text-sm font-medium text-blue-900">Menus</h4>
+                        <p className="text-xs text-blue-700 mt-0.5">Manage daypart menus, zones, and items for this brand</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowMenuManagement(true)}
+                        className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1.5"
+                      >
+                        <UtensilsCrossed className="w-3.5 h-3.5" />
+                        Manage Menus
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Brand Type</label>
+                    <select
+                      value={formData.brand_type || 'enterprise'}
+                      onChange={(e) => setFormData({ ...formData, brand_type: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="enterprise">Enterprise (shared across all locations)</option>
+                      <option value="localized">Localized (custom per-location)</option>
+                    </select>
+                    <p className="mt-1 text-xs text-slate-500">Enterprise brands share menus org-wide. Localized brands create unique menus per site.</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Scheduling Mode</label>
+                    <select
+                      value={formData.scheduling_mode || 'cycle'}
+                      onChange={(e) => setFormData({ ...formData, scheduling_mode: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="cycle">Cycle (rotates through the location's cycle weeks)</option>
+                      <option value="static">Static (same every day, like a franchise brand)</option>
+                    </select>
+                    <p className="mt-1 text-xs text-slate-500">Cycle brands rotate per the location's multi-week schedule. Static brands show the same brand every day.</p>
                   </div>
                 </div>
               </div>
