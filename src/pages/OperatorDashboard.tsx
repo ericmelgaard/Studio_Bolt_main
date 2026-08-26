@@ -14,10 +14,11 @@ const ShelfLabelManagement = lazy(() => import('./ShelfLabelManagement'));
 const StoreManagement = lazy(() => import('./StoreManagement'));
 const ProductManagement = lazy(() => import('./ProductManagement'));
 const DisplayManagement = lazy(() => import('./DisplayManagement'));
+const BrandWorkspace = lazy(() => import('./BrandWorkspace'));
 const LocationSelector = lazy(() => import('../components/LocationSelector'));
 const HeaderNavigation = lazy(() => import('../components/HeaderNavigation'));
 
-type DashboardView = 'displays' | 'signage' | 'labels' | 'store' | 'products';
+type DashboardView = 'displays' | 'signage' | 'labels' | 'store' | 'products' | 'brands';
 
 interface UserProfile {
   id: string;
@@ -167,6 +168,18 @@ export default function OperatorDashboard({ onBack, user }: OperatorDashboardPro
     }
   };
 
+
+  if (currentView === 'brands') {
+    return (
+      <Suspense fallback={<div className="min-h-screen bg-slate-50 flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div></div>}>
+        <BrandWorkspace
+          userConceptId={user.concept_id}
+          userCompanyId={user.company_id}
+          onBack={() => setCurrentView('displays')}
+        />
+      </Suspense>
+    );
+  }
 
   if (currentView === 'signage') {
     return (

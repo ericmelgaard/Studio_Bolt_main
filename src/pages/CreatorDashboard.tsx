@@ -1,4 +1,4 @@
-import { Users, HelpCircle, FileText, ChevronDown, Layers, Image, BarChart3, Video, FileText as Document, Palette, GripVertical, Building2, Map } from 'lucide-react';
+import { Users, HelpCircle, FileText, ChevronDown, Layers, Image, BarChart3, Video, FileText as Document, Palette, GripVertical, Building2, Map, UtensilsCrossed } from 'lucide-react';
 import { useState, useEffect, lazy, Suspense } from 'react';
 import NotificationPanel from '../components/NotificationPanel';
 import UserMenu from '../components/UserMenu';
@@ -8,6 +8,7 @@ import { UserProvider } from '../contexts/UserContext';
 
 const LocationSelector = lazy(() => import('../components/LocationSelector'));
 const HeaderNavigation = lazy(() => import('../components/HeaderNavigation'));
+const BrandWorkspace = lazy(() => import('./BrandWorkspace'));
 
 interface UserProfile {
   id: string;
@@ -25,6 +26,7 @@ interface CreatorDashboardProps {
 }
 
 type CardType = 'projects' | 'media' | 'analytics' | 'video' | 'templates' | 'brand';
+type CreatorView = 'dashboard' | 'brands';
 
 interface DashboardCard {
   id: CardType;
@@ -40,6 +42,7 @@ interface Concept {
 }
 
 export default function CreatorDashboard({ onBack, user }: CreatorDashboardProps) {
+  const [currentView, setCurrentView] = useState<CreatorView>('dashboard');
   const [concepts, setConcepts] = useState<Concept[]>([]);
   const [selectedConcept, setSelectedConcept] = useState<Concept | null>(null);
   const [loading, setLoading] = useState(true);
@@ -280,28 +283,28 @@ export default function CreatorDashboard({ onBack, user }: CreatorDashboardProps
 
       case 'brand':
         return (
-          <div key={cardId} {...commonProps}>
+          <div key={cardId} {...commonProps} onClick={() => setCurrentView('brands')} style={{ cursor: 'pointer' }}>
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <GripVertical className="w-5 h-5 text-slate-400 cursor-grab active:cursor-grabbing" />
                 <h3 className="text-sm font-semibold text-slate-900">
-                  Brand Guidelines
+                  Brands &amp; Menus
                 </h3>
               </div>
             </div>
             <div className="space-y-4">
               <div className="flex items-center gap-4">
                 <div className="p-3 bg-cyan-100 rounded-lg">
-                  <Palette className="w-8 h-8 text-cyan-600" />
+                  <UtensilsCrossed className="w-8 h-8 text-cyan-600" />
                 </div>
                 <div>
-                  <div className="text-sm text-slate-900 font-medium">Style Guide</div>
-                  <div className="text-sm text-slate-600">Brand assets & colors</div>
+                  <div className="text-sm text-slate-900 font-medium">My Brands</div>
+                  <div className="text-sm text-slate-600">Menus & schedules</div>
                 </div>
               </div>
               <div className="pt-3 border-t border-slate-100">
                 <div className="text-sm text-slate-600">
-                  Access brand resources
+                  View menus, schedules & products
                 </div>
               </div>
             </div>
@@ -312,6 +315,20 @@ export default function CreatorDashboard({ onBack, user }: CreatorDashboardProps
         return null;
     }
   };
+
+  if (currentView === 'brands') {
+    return (
+      <UserProvider user={user}>
+        <Suspense fallback={<div className="min-h-screen bg-slate-50 flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div></div>}>
+          <BrandWorkspace
+            userConceptId={user.concept_id}
+            userCompanyId={user.company_id}
+            onBack={() => setCurrentView('dashboard')}
+          />
+        </Suspense>
+      </UserProvider>
+    );
+  }
 
   return (
     <UserProvider user={user}>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Store, Edit2, Trash2, MapPin, Phone, Globe, Plus, Building2, Building, Layers, Clock, ChevronRight } from 'lucide-react';
+import { Store, CreditCard as Edit2, Trash2, MapPin, Phone, Globe, Plus, Building2, Building, Layers, Clock, ChevronRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useLocation } from '../hooks/useLocation';
 import { UserRole } from '../lib/supabase';
@@ -476,7 +476,7 @@ export default function SiteConfigurationBeta({ role, userId }: SiteConfiguratio
 
           <MetricsBar
             metrics={[
-              { label: 'Total Concepts', value: totalConcepts, icon: Building2, color: 'bg-blue-500' },
+              { label: 'Total Brands', value: totalConcepts, icon: Building2, color: 'bg-blue-500' },
               { label: 'Total Companies', value: totalCompanies, icon: Building2, color: 'bg-green-500' },
               { label: 'Total Stores', value: totalStores, icon: Store, color: 'bg-purple-500' }
             ]}
@@ -484,7 +484,7 @@ export default function SiteConfigurationBeta({ role, userId }: SiteConfiguratio
 
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-slate-900">Concepts</h2>
+              <h2 className="text-xl font-bold text-slate-900">Brands</h2>
               <button
                 onClick={() => {
                   setSelectedConcept(null);
@@ -575,7 +575,7 @@ export default function SiteConfigurationBeta({ role, userId }: SiteConfiguratio
                   <Building2 className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold text-slate-900">Concept Configuration</h1>
+                  <h1 className="text-xl font-bold text-slate-900">Brand Configuration</h1>
                   <Breadcrumb items={getBreadcrumbItems()} />
                 </div>
               </div>

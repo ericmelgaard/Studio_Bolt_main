@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Home, Monitor, Tag, Package, Store, HelpCircle, FileText, Bell, Settings, Sun, Moon, Laptop, User, LogOut, Sparkles } from 'lucide-react';
+import { X, Home, Monitor, Tag, Package, Store, HelpCircle, FileText, Bell, Settings, Sun, Moon, Laptop, User, LogOut, Sparkles, UtensilsCrossed } from 'lucide-react';
 
 interface OperatorMobileNavProps {
   isOpen: boolean;
@@ -78,6 +78,7 @@ export default function OperatorMobileNav({
   };
   const navigationItems = [
     { id: 'displays', label: 'Operator Hub', icon: Home },
+    { id: 'brands', label: 'Brands', icon: UtensilsCrossed },
     { id: 'signage', label: 'Digital Signage', icon: Monitor },
     { id: 'labels', label: 'Shelf Labels', icon: Tag },
     { id: 'products', label: 'Products', icon: Package },

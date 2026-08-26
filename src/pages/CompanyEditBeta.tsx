@@ -395,6 +395,7 @@ export default function CompanyEditBeta({ companyId, conceptId, conceptName, com
       { id: 'basic-info', label: 'Basic Information', icon: Info },
       { id: 'contact-info', label: 'Contact Information', icon: Phone },
       { id: 'location-details', label: 'Location Details', icon: MapPin },
+      { id: 'brand-subscriptions', label: 'Brand Subscriptions', icon: Building2 },
       { id: 'languages', label: 'Languages', icon: Globe }
     ];
   };
