@@ -471,7 +471,7 @@ export default function AdminDashboard({ onBack, user }: AdminDashboardProps) {
                 }}
               />
             )}
-            {currentView === 'brands' && <BrandWorkspace userConceptId={user.concept_id || location.concept?.id} userCompanyId={user.company_id || location.company?.id} userStoreId={user.store_id || location.store?.id} isAdmin={true} onBack={() => setCurrentView('dashboard')} />}
+            {currentView === 'brands' && <BrandWorkspace userConceptId={user.concept_id || location.concept?.id} userCompanyId={user.company_id || location.company?.id} userStoreId={user.store_id || location.store?.id} isAdmin={true} onBack={() => setCurrentView('dashboard')} onNavigateToBrandMenus={(id, name) => { setBrandContext({ id, name }); setCurrentView('brand-menus'); }} onNavigateToScheduling={() => setCurrentView('station-scheduling')} onNavigateToProducts={() => setCurrentView('products')} />}
             {currentView === 'brand-menus' && brandContext && (
               <BrandMenuManagement brandId={brandContext.id} brandName={brandContext.name} onBack={() => setCurrentView('brands')} />
             )}

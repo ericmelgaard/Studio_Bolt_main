@@ -177,6 +177,7 @@ export default function OperatorDashboard({ onBack, user }: OperatorDashboardPro
           userCompanyId={user.company_id}
           userStoreId={user.store_id}
           onBack={() => setCurrentView('displays')}
+          onNavigateToProducts={() => setCurrentView('products')}
         />
       </Suspense>
     );

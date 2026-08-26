@@ -1,6 +1,12 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, UtensilsCrossed, Calendar, Package, Settings, ChevronRight, Plus, Clock, MapPin, Globe, Layers, X, Share2 } from 'lucide-react';
+import {
+  UtensilsCrossed, Plus, Search, Globe, Layers, X, Share2,
+  ChevronRight, Calendar, Package, Palette, Type, Image,
+  ExternalLink, ArrowRight, Unlink
+} from 'lucide-react';
+import Breadcrumb from '../components/Breadcrumb';
 import { supabase } from '../lib/supabase';
+import { useLocation } from '../hooks/useLocation';
 
 interface Brand {
   id: number;
@@ -14,24 +20,24 @@ interface Brand {
   is_wrapper: boolean;
   created_by_store_id: number | null;
   description: string | null;
+  logo_path: string | null;
+  brand_palette: string[] | null;
+  menu_type_settings: Record<string, any> | null;
+  design_notes: string | null;
 }
 
-interface Menu {
-  id: string;
-  name: string;
-  description: string | null;
-  status: string;
-  daypart_label: string | null;
-  zone_count: number;
-  item_count: number;
-}
-
-interface Station {
+interface DesignResource {
   id: number;
-  name: string;
-  store_name: string;
-  days_of_week: number[];
-  brand_name: string;
+  concept_id: number;
+  resource_type: string;
+  file_name: string;
+  file_path: string;
+  metadata: Record<string, any> | null;
+  sort_order: number;
+}
+
+interface BrandScheduleDays {
+  [brandId: number]: number[];
 }
 
 interface BrandWorkspaceProps {
@@ -40,19 +46,25 @@ interface BrandWorkspaceProps {
   userStoreId?: number | null;
   isAdmin?: boolean;
   onBack?: () => void;
+  onNavigateToBrandMenus?: (brandId: number, brandName: string) => void;
+  onNavigateToScheduling?: () => void;
+  onNavigateToProducts?: () => void;
 }
 
-const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const TODAY_INDEX = new Date().getDay();
+const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+const DAY_INDICES = [1, 2, 3, 4, 5, 6, 0]; // Mon-Sun mapped to JS day indices
 
-export default function BrandWorkspace({ userConceptId, userCompanyId, userStoreId, isAdmin, onBack }: BrandWorkspaceProps) {
+export default function BrandWorkspace({
+  userConceptId, userCompanyId, userStoreId, isAdmin,
+  onBack, onNavigateToBrandMenus, onNavigateToScheduling, onNavigateToProducts
+}: BrandWorkspaceProps) {
+  const { location, setLocation } = useLocation();
   const [brands, setBrands] = useState<Brand[]>([]);
   const [selectedBrand, setSelectedBrand] = useState<Brand | null>(null);
-  const [activeTab, setActiveTab] = useState<'menus' | 'schedule' | 'products' | 'settings'>('menus');
-  const [menus, setMenus] = useState<Menu[]>([]);
-  const [schedules, setSchedules] = useState<Station[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
+  const [designResources, setDesignResources] = useState<DesignResource[]>([]);
+  const [scheduleDays, setScheduleDays] = useState<BrandScheduleDays>({});
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
   const [showCreateSubBrand, setShowCreateSubBrand] = useState(false);
   const [showLinkNationalBrand, setShowLinkNationalBrand] = useState(false);
 
@@ -62,9 +74,9 @@ export default function BrandWorkspace({ userConceptId, userCompanyId, userStore
 
   useEffect(() => {
     if (selectedBrand) {
-      loadBrandData(selectedBrand.id);
+      loadDesignResources(selectedBrand.id);
     }
-  }, [selectedBrand, activeTab]);
+  }, [selectedBrand]);
 
   const loadBrands = async () => {
     setLoading(true);
@@ -102,67 +114,44 @@ export default function BrandWorkspace({ userConceptId, userCompanyId, userStore
     if (brandIds.length > 0) {
       const { data } = await supabase
         .from('concepts')
-        .select('id, name, brand_type, scheduling_mode, brand_primary_color, brand_secondary_color, visibility, parent_brand_id, is_wrapper, created_by_store_id, description')
+        .select('id, name, brand_type, scheduling_mode, brand_primary_color, brand_secondary_color, visibility, parent_brand_id, is_wrapper, created_by_store_id, description, logo_path, brand_palette, menu_type_settings, design_notes')
         .in('id', brandIds)
         .order('name');
       if (data) {
         setBrands(data);
+        loadScheduleDays(data.map(b => b.id));
       }
     }
     setLoading(false);
   };
 
-  const loadBrandData = async (brandId: number) => {
-    if (activeTab === 'menus') {
-      const { data: menuData } = await supabase
-        .from('menus')
-        .select(`
-          id, name, description, status,
-          daypart_definitions(display_label),
-          menu_zones(id),
-          scheduled_menu_items(id)
-        `)
-        .eq('brand_id', brandId);
+  const loadScheduleDays = async (brandIds: number[]) => {
+    const { data } = await supabase
+      .from('station_schedules')
+      .select('brand_id, days_of_week')
+      .in('brand_id', brandIds)
+      .eq('is_active', true);
 
-      if (menuData) {
-        setMenus(menuData.map(m => ({
-          id: m.id,
-          name: m.name,
-          description: m.description,
-          status: m.status,
-          daypart_label: (m.daypart_definitions as any)?.display_label || null,
-          zone_count: (m.menu_zones as any[])?.length || 0,
-          item_count: (m.scheduled_menu_items as any[])?.length || 0,
-        })));
-      }
-    } else if (activeTab === 'schedule') {
-      const { data: stationData } = await supabase
-        .from('station_schedules')
-        .select(`
-          id, days_of_week, cycle_week,
-          stations(id, name, store_id, stores(name))
-        `)
-        .eq('brand_id', brandId)
-        .eq('is_active', true);
-
-      if (stationData) {
-        setSchedules(stationData.map(s => ({
-          id: (s.stations as any)?.id,
-          name: (s.stations as any)?.name || 'Unknown',
-          store_name: (s.stations as any)?.stores?.name || '',
-          days_of_week: s.days_of_week || [],
-          brand_name: selectedBrand?.name || '',
-        })));
-      }
-    } else if (activeTab === 'products') {
-      const { data: productData } = await supabase
-        .from('products')
-        .select('id, name, sku, status')
-        .eq('concept_id', brandId)
-        .order('name')
-        .limit(50);
-      if (productData) setProducts(productData);
+    if (data) {
+      const map: BrandScheduleDays = {};
+      data.forEach(s => {
+        if (!map[s.brand_id]) map[s.brand_id] = [];
+        (s.days_of_week || []).forEach((d: number) => {
+          if (!map[s.brand_id].includes(d)) map[s.brand_id].push(d);
+        });
+      });
+      setScheduleDays(map);
     }
+  };
+
+  const loadDesignResources = async (brandId: number) => {
+    const { data } = await supabase
+      .from('brand_design_resources')
+      .select('*')
+      .eq('concept_id', brandId)
+      .order('resource_type')
+      .order('sort_order');
+    if (data) setDesignResources(data);
   };
 
   const handleCreateSubBrand = async (name: string, parentId: number | null, color: string) => {
@@ -213,16 +202,9 @@ export default function BrandWorkspace({ userConceptId, userCompanyId, userStore
   const handleLinkNationalBrand = async (conceptId: number) => {
     const companyId = userCompanyId || await resolveCompanyId();
     if (!companyId) return;
-
-    const { error } = await supabase
+    await supabase
       .from('company_brands')
       .insert({ company_id: companyId, concept_id: conceptId });
-
-    if (error) {
-      console.error('Error linking brand:', error);
-      return;
-    }
-
     setShowLinkNationalBrand(false);
     loadBrands();
   };
@@ -230,262 +212,785 @@ export default function BrandWorkspace({ userConceptId, userCompanyId, userStore
   const handleUnlinkBrand = async (conceptId: number) => {
     const companyId = userCompanyId || await resolveCompanyId();
     if (!companyId) return;
-
-    const { error } = await supabase
+    await supabase
       .from('company_brands')
       .delete()
       .eq('company_id', companyId)
       .eq('concept_id', conceptId);
-
-    if (error) {
-      console.error('Error unlinking brand:', error);
-      return;
-    }
-
+    if (selectedBrand?.id === conceptId) setSelectedBrand(null);
     loadBrands();
   };
 
-  if (loading) {
+  const getBreadcrumbItems = () => {
+    const items = [{ label: 'WAND Digital', onClick: () => setLocation({}) }];
+    if (location.concept) items.push({ label: location.concept.name, onClick: () => setLocation({ concept: location.concept }) });
+    if (location.company) items.push({ label: location.company.name, onClick: () => setLocation({ concept: location.concept, company: location.company }) });
+    if (location.store) items.push({ label: location.store.name });
+    else if (!location.concept && !location.company) items.push({ label: 'All Locations' });
+    return items;
+  };
+
+  const nationalBrands = brands.filter(b => b.visibility === 'national' && !b.is_wrapper);
+  const wrapperBrands = brands.filter(b => b.is_wrapper);
+  const localBrands = brands.filter(b => b.visibility === 'local');
+
+  const filteredNational = searchQuery
+    ? nationalBrands.filter(b => b.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    : nationalBrands;
+  const filteredLocal = searchQuery
+    ? localBrands.filter(b => b.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    : localBrands;
+  const filteredWrappers = searchQuery
+    ? wrapperBrands.filter(w => {
+        const children = localBrands.filter(b => b.parent_brand_id === w.id);
+        return w.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          children.some(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()));
+      })
+    : wrapperBrands;
+
+  if (selectedBrand) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-      </div>
+      <BrandDetailPanel
+        brand={selectedBrand}
+        designResources={designResources}
+        activeDays={scheduleDays[selectedBrand.id] || []}
+        isAdmin={isAdmin}
+        onBack={() => setSelectedBrand(null)}
+        onUnlink={isAdmin ? () => handleUnlinkBrand(selectedBrand.id) : undefined}
+        onNavigateToBrandMenus={onNavigateToBrandMenus}
+        onNavigateToScheduling={onNavigateToScheduling}
+        onNavigateToProducts={onNavigateToProducts}
+        onBrandUpdated={loadBrands}
+      />
     );
   }
 
-  if (!selectedBrand) {
-    const nationalBrands = brands.filter(b => b.visibility === 'national' && !b.is_wrapper);
-    const wrapperBrands = brands.filter(b => b.is_wrapper);
-    const localBrands = brands.filter(b => b.visibility === 'local');
-
-    return (
-      <div className="max-w-6xl mx-auto px-4 py-6">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Brands</h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              {brands.length} brand{brands.length !== 1 ? 's' : ''} linked to this location
-            </p>
+  return (
+    <div className="max-w-[1800px] mx-auto">
+      {/* Page Header */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-gradient-to-br from-[#00adf0] to-[#0099d6] rounded-lg">
+              <UtensilsCrossed className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-slate-900">Brand Management</h1>
+              <Breadcrumb items={getBreadcrumbItems()} />
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {isAdmin && (
               <button
                 onClick={() => setShowLinkNationalBrand(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 border border-blue-200 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors"
+                className="px-4 py-2 border-2 border-[#00adf0] bg-white hover:bg-slate-50 text-[#00adf0] rounded-lg transition-colors flex items-center gap-2"
               >
-                <Share2 className="w-4 h-4" /> Link National Brand
+                <Share2 className="w-4 h-4" />
+                Link National Brand
               </button>
             )}
             <button
               onClick={() => setShowCreateSubBrand(true)}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+              className="px-4 py-2 bg-[#00adf0] text-white rounded-lg hover:bg-[#0099d6] transition-colors flex items-center gap-2"
             >
-              <Plus className="w-4 h-4" /> Create Local Brand
+              <Plus className="w-4 h-4" />
+              Create Local Brand
             </button>
           </div>
         </div>
+        <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+          <p className="text-sm text-blue-800">
+            <strong>{brands.length} brand{brands.length !== 1 ? 's' : ''}</strong> linked to this location.
+            Manage brand identities, design resources, and subscriptions.
+          </p>
+        </div>
+      </div>
 
-        {brands.length === 0 ? (
-          <div className="text-center py-16 text-slate-500">
-            <UtensilsCrossed className="w-12 h-12 mx-auto mb-4 opacity-40" />
-            <p className="text-lg">No brands assigned to your account yet.</p>
+      {/* Main Content Card */}
+      <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+        {/* Search Bar */}
+        <div className="p-6 border-b border-slate-200">
+          <div className="relative max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search brands..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-24">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#00adf0]"></div>
+          </div>
+        ) : brands.length === 0 ? (
+          <div className="text-center py-24">
+            <UtensilsCrossed className="w-12 h-12 mx-auto mb-4 text-slate-300" />
+            <p className="text-lg font-medium text-slate-600">No brands linked yet</p>
+            <p className="text-sm text-slate-400 mt-1 mb-6">Link a national brand or create a local one to get started.</p>
+            <div className="flex items-center justify-center gap-3">
+              {isAdmin && (
+                <button
+                  onClick={() => setShowLinkNationalBrand(true)}
+                  className="px-4 py-2 border-2 border-[#00adf0] text-[#00adf0] rounded-lg hover:bg-blue-50 transition-colors flex items-center gap-2"
+                >
+                  <Share2 className="w-4 h-4" /> Link National Brand
+                </button>
+              )}
+              <button
+                onClick={() => setShowCreateSubBrand(true)}
+                className="px-4 py-2 bg-[#00adf0] text-white rounded-lg hover:bg-[#0099d6] transition-colors flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" /> Create Local Brand
+              </button>
+            </div>
           </div>
         ) : (
-          <div className="space-y-8">
-            {/* National Brands Section */}
-            {nationalBrands.length > 0 && (
-              <section>
-                <div className="flex items-center gap-2 mb-3">
-                  <Globe className="w-4 h-4 text-blue-600" />
-                  <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">
-                    National Brands
-                  </h2>
-                  <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-2 py-0.5 rounded-full">
-                    {nationalBrands.length}
-                  </span>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {nationalBrands.map(brand => (
-                    <BrandCard key={brand.id} brand={brand} onSelect={setSelectedBrand} onUnlink={isAdmin ? () => handleUnlinkBrand(brand.id) : undefined} />
+          <div className="p-6 space-y-8">
+            {/* National Brands */}
+            {filteredNational.length > 0 && (
+              <BrandSection
+                icon={<Globe className="w-4 h-4 text-[#00adf0]" />}
+                title="National Brands"
+                count={filteredNational.length}
+                badgeColor="bg-blue-100 text-blue-700"
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {filteredNational.map(brand => (
+                    <BrandOverviewCard
+                      key={brand.id}
+                      brand={brand}
+                      activeDays={scheduleDays[brand.id] || []}
+                      onSelect={() => setSelectedBrand(brand)}
+                      onUnlink={isAdmin ? () => handleUnlinkBrand(brand.id) : undefined}
+                    />
                   ))}
                 </div>
-              </section>
+              </BrandSection>
             )}
 
-            {/* Sub-Brands Section (grouped by wrapper) */}
-            {(wrapperBrands.length > 0 || localBrands.length > 0) && (
-              <section>
-                <div className="flex items-center gap-2 mb-3">
-                  <Layers className="w-4 h-4 text-emerald-600" />
-                  <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">
-                    Sub-Brands
-                  </h2>
-                  <span className="text-xs bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 px-2 py-0.5 rounded-full">
-                    {localBrands.length}
-                  </span>
-                </div>
-
-                {wrapperBrands.map(wrapper => {
-                  const children = localBrands.filter(b => b.parent_brand_id === wrapper.id);
+            {/* Sub-Brands grouped by wrapper */}
+            {(filteredWrappers.length > 0 || filteredLocal.length > 0) && (
+              <BrandSection
+                icon={<Layers className="w-4 h-4 text-emerald-600" />}
+                title="Sub-Brands"
+                count={filteredLocal.length}
+                badgeColor="bg-emerald-100 text-emerald-700"
+              >
+                {filteredWrappers.map(wrapper => {
+                  const children = filteredLocal.filter(b => b.parent_brand_id === wrapper.id);
                   if (children.length === 0) return null;
                   return (
-                    <div key={wrapper.id} className="mb-4">
-                      <div className="flex items-center gap-2 mb-2 pl-1">
-                        <div className="w-6 h-6 rounded bg-slate-200 dark:bg-slate-700 flex items-center justify-center">
+                    <div key={wrapper.id} className="mb-6 last:mb-0">
+                      <div className="flex items-center gap-2 mb-3 ml-1">
+                        <div className="w-6 h-6 rounded bg-slate-100 flex items-center justify-center">
                           <Layers className="w-3.5 h-3.5 text-slate-500" />
                         </div>
-                        <span className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                          {wrapper.name}
-                        </span>
-                        <span className="text-xs text-slate-400">({children.length} sub-brand{children.length !== 1 ? 's' : ''})</span>
+                        <span className="text-sm font-medium text-slate-600">{wrapper.name}</span>
+                        <span className="text-xs text-slate-400">({children.length})</span>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pl-8">
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 ml-8">
                         {children.map(brand => (
-                          <BrandCard key={brand.id} brand={brand} onSelect={setSelectedBrand} isSubBrand />
+                          <BrandOverviewCard
+                            key={brand.id}
+                            brand={brand}
+                            activeDays={scheduleDays[brand.id] || []}
+                            onSelect={() => setSelectedBrand(brand)}
+                            isSubBrand
+                          />
                         ))}
                       </div>
                     </div>
                   );
                 })}
 
-                {/* Orphan local brands (no wrapper parent) */}
-                {localBrands.filter(b => !b.parent_brand_id || !wrapperBrands.find(w => w.id === b.parent_brand_id)).length > 0 && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {localBrands
-                      .filter(b => !b.parent_brand_id || !wrapperBrands.find(w => w.id === b.parent_brand_id))
-                      .map(brand => (
-                        <BrandCard key={brand.id} brand={brand} onSelect={setSelectedBrand} isSubBrand />
+                {/* Orphan local brands */}
+                {(() => {
+                  const orphans = filteredLocal.filter(b => !b.parent_brand_id || !wrapperBrands.find(w => w.id === b.parent_brand_id));
+                  if (orphans.length === 0) return null;
+                  return (
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                      {orphans.map(brand => (
+                        <BrandOverviewCard
+                          key={brand.id}
+                          brand={brand}
+                          activeDays={scheduleDays[brand.id] || []}
+                          onSelect={() => setSelectedBrand(brand)}
+                          isSubBrand
+                        />
                       ))}
-                  </div>
-                )}
-              </section>
+                    </div>
+                  );
+                })()}
+              </BrandSection>
             )}
           </div>
         )}
-
-        {showCreateSubBrand && (
-          <CreateSubBrandModal
-            wrapperBrands={wrapperBrands}
-            onClose={() => setShowCreateSubBrand(false)}
-            onCreate={handleCreateSubBrand}
-          />
-        )}
-
-        {showLinkNationalBrand && (
-          <LinkNationalBrandModal
-            existingBrandIds={brands.map(b => b.id)}
-            onClose={() => setShowLinkNationalBrand(false)}
-            onLink={handleLinkNationalBrand}
-          />
-        )}
-      </div>
-    );
-  }
-
-  const tabs = [
-    { id: 'menus' as const, label: 'Menus', icon: UtensilsCrossed },
-    { id: 'schedule' as const, label: 'This Week', icon: Calendar },
-    { id: 'products' as const, label: 'Products', icon: Package },
-    { id: 'settings' as const, label: 'Settings', icon: Settings },
-  ];
-
-  return (
-    <div className="max-w-6xl mx-auto px-4 py-6">
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <button
-          onClick={() => { if (brands.length > 1) setSelectedBrand(null); else onBack?.(); }}
-          className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5 text-slate-600 dark:text-slate-400" />
-        </button>
-        <div
-          className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold"
-          style={{ backgroundColor: selectedBrand.brand_primary_color || '#3b82f6' }}
-        >
-          {selectedBrand.name.charAt(0)}
-        </div>
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white">{selectedBrand.name}</h1>
-            {selectedBrand.visibility === 'local' && (
-              <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-xs font-medium rounded-full">
-                Sub-Brand
-              </span>
-            )}
-          </div>
-          <p className="text-sm text-slate-500 capitalize">
-            {selectedBrand.brand_type || 'Standard'} brand &middot; {selectedBrand.scheduling_mode || 'Static'} scheduling
-          </p>
-        </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-700 mb-6">
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === tab.id
-                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <tab.icon className="w-4 h-4" />
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {showCreateSubBrand && (
+        <CreateSubBrandModal
+          wrapperBrands={wrapperBrands}
+          onClose={() => setShowCreateSubBrand(false)}
+          onCreate={handleCreateSubBrand}
+        />
+      )}
 
-      {/* Tab Content */}
-      {activeTab === 'menus' && <MenusTab menus={menus} brandColor={selectedBrand.brand_primary_color} />}
-      {activeTab === 'schedule' && <ScheduleTab schedules={schedules} />}
-      {activeTab === 'products' && <ProductsTab products={products} />}
-      {activeTab === 'settings' && <SettingsTab brand={selectedBrand} />}
+      {showLinkNationalBrand && (
+        <LinkNationalBrandModal
+          existingBrandIds={brands.map(b => b.id)}
+          onClose={() => setShowLinkNationalBrand(false)}
+          onLink={handleLinkNationalBrand}
+        />
+      )}
     </div>
   );
 }
 
-function BrandCard({ brand, onSelect, isSubBrand, onUnlink }: { brand: Brand; onSelect: (b: Brand) => void; isSubBrand?: boolean; onUnlink?: () => void }) {
+/* ─── Section Wrapper ─── */
+
+function BrandSection({ icon, title, count, badgeColor, children }: {
+  icon: React.ReactNode;
+  title: string;
+  count: number;
+  badgeColor: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="relative text-left bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-600 transition-all group">
-      <button
-        onClick={() => onSelect(brand)}
-        className="w-full text-left"
-      >
-        <div className="flex items-start justify-between">
+    <section>
+      <div className="flex items-center gap-2 mb-4">
+        {icon}
+        <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">{title}</h2>
+        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badgeColor}`}>{count}</span>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/* ─── Brand Card ─── */
+
+function BrandOverviewCard({ brand, activeDays, onSelect, onUnlink, isSubBrand }: {
+  brand: Brand;
+  activeDays: number[];
+  onSelect: () => void;
+  onUnlink?: () => void;
+  isSubBrand?: boolean;
+}) {
+  const primaryColor = brand.brand_primary_color || '#64748b';
+  const secondaryColor = brand.brand_secondary_color || '#94a3b8';
+
+  return (
+    <div
+      onClick={onSelect}
+      className="relative group bg-white rounded-xl border border-slate-200 hover:border-[#00adf0] hover:shadow-lg transition-all cursor-pointer overflow-hidden"
+    >
+      {/* Color accent bar */}
+      <div className="h-1.5 w-full" style={{ background: `linear-gradient(90deg, ${primaryColor}, ${secondaryColor})` }} />
+
+      <div className="p-5">
+        <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-3">
+            {/* Logo / Initial */}
             <div
-              className={`w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold text-sm ${isSubBrand ? 'rounded-full' : ''}`}
-              style={{ backgroundColor: brand.brand_primary_color || '#3b82f6' }}
+              className={`w-12 h-12 ${isSubBrand ? 'rounded-full' : 'rounded-lg'} flex items-center justify-center text-white font-bold text-lg shrink-0`}
+              style={{ backgroundColor: primaryColor }}
             >
               {brand.name.charAt(0)}
             </div>
-            <div>
-              <h3 className="font-semibold text-slate-900 dark:text-white group-hover:text-blue-600 transition-colors">
+            <div className="min-w-0">
+              <h3 className="font-semibold text-slate-900 group-hover:text-[#00adf0] transition-colors truncate">
                 {brand.name}
               </h3>
-              <p className="text-xs text-slate-500 mt-0.5 capitalize">
-                {brand.brand_type || 'Standard'} &middot; {brand.scheduling_mode || 'Static'}
-              </p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className={`inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded font-medium ${
+                  brand.visibility === 'national'
+                    ? 'bg-blue-50 text-blue-600'
+                    : 'bg-emerald-50 text-emerald-600'
+                }`}>
+                  {brand.visibility === 'national' ? 'National' : 'Local'}
+                </span>
+                <span className="text-xs text-slate-400 capitalize">
+                  {brand.scheduling_mode || 'static'}
+                </span>
+              </div>
             </div>
           </div>
-          <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-blue-500 transition-colors" />
+          <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-[#00adf0] transition-colors shrink-0 mt-1" />
         </div>
-      </button>
+
+        {/* Color swatches + Active days row */}
+        <div className="flex items-center justify-between">
+          {/* Color swatches */}
+          <div className="flex items-center gap-1.5">
+            <div className="w-5 h-5 rounded border border-slate-200" style={{ backgroundColor: primaryColor }} title="Primary" />
+            <div className="w-5 h-5 rounded border border-slate-200" style={{ backgroundColor: secondaryColor }} title="Secondary" />
+            {brand.brand_palette && Array.isArray(brand.brand_palette) && brand.brand_palette.slice(0, 3).map((c, i) => (
+              <div key={i} className="w-5 h-5 rounded border border-slate-200" style={{ backgroundColor: c }} />
+            ))}
+          </div>
+
+          {/* Active days strip */}
+          <div className="flex items-center gap-0.5">
+            {DAY_LABELS.map((label, idx) => {
+              const dayIndex = DAY_INDICES[idx];
+              const isActive = activeDays.includes(dayIndex);
+              return (
+                <div
+                  key={idx}
+                  className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold ${
+                    isActive
+                      ? 'text-white'
+                      : 'bg-slate-100 text-slate-300'
+                  }`}
+                  style={isActive ? { backgroundColor: primaryColor } : undefined}
+                  title={`${['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][idx]}: ${isActive ? 'Active' : 'Inactive'}`}
+                >
+                  {label}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Unlink button */}
       {onUnlink && (
         <button
           onClick={(e) => { e.stopPropagation(); onUnlink(); }}
-          className="absolute top-2 right-2 p-1.5 opacity-0 group-hover:opacity-100 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all"
+          className="absolute top-4 right-3 p-1.5 opacity-0 group-hover:opacity-100 hover:bg-red-50 rounded-lg transition-all z-10"
           title="Unlink brand"
         >
-          <X className="w-3.5 h-3.5 text-red-500" />
+          <Unlink className="w-3.5 h-3.5 text-red-400 hover:text-red-600" />
         </button>
       )}
     </div>
   );
 }
+
+/* ─── Brand Detail Panel ─── */
+
+function BrandDetailPanel({ brand, designResources, activeDays, isAdmin, onBack, onUnlink,
+  onNavigateToBrandMenus, onNavigateToScheduling, onNavigateToProducts, onBrandUpdated
+}: {
+  brand: Brand;
+  designResources: DesignResource[];
+  activeDays: number[];
+  isAdmin?: boolean;
+  onBack: () => void;
+  onUnlink?: () => void;
+  onNavigateToBrandMenus?: (brandId: number, brandName: string) => void;
+  onNavigateToScheduling?: () => void;
+  onNavigateToProducts?: () => void;
+  onBrandUpdated: () => void;
+}) {
+  const [editingColors, setEditingColors] = useState(false);
+  const [primaryColor, setPrimaryColor] = useState(brand.brand_primary_color || '#64748b');
+  const [secondaryColor, setSecondaryColor] = useState(brand.brand_secondary_color || '#94a3b8');
+  const [savingColors, setSavingColors] = useState(false);
+  const [linkedCompanies, setLinkedCompanies] = useState<Array<{ id: number; name: string }>>([]);
+
+  useEffect(() => {
+    loadLinkedCompanies();
+  }, [brand.id]);
+
+  const loadLinkedCompanies = async () => {
+    const { data } = await supabase
+      .from('company_brands')
+      .select('company_id, companies(id, name)')
+      .eq('concept_id', brand.id);
+    if (data) {
+      setLinkedCompanies(data.map(d => ({
+        id: (d.companies as any)?.id,
+        name: (d.companies as any)?.name || 'Unknown'
+      })).filter(c => c.id));
+    }
+  };
+
+  const handleSaveColors = async () => {
+    setSavingColors(true);
+    await supabase
+      .from('concepts')
+      .update({ brand_primary_color: primaryColor, brand_secondary_color: secondaryColor })
+      .eq('id', brand.id);
+    setSavingColors(false);
+    setEditingColors(false);
+    onBrandUpdated();
+  };
+
+  const fonts = designResources.filter(r => r.resource_type === 'font');
+  const images = designResources.filter(r => r.resource_type === 'image');
+
+  return (
+    <div className="max-w-[1800px] mx-auto">
+      {/* Header */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-gradient-to-br from-[#00adf0] to-[#0099d6] rounded-lg">
+              <UtensilsCrossed className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <button onClick={onBack} className="text-xl font-bold text-slate-400 hover:text-[#00adf0] transition-colors">
+                  Brands
+                </button>
+                <ChevronRight className="w-4 h-4 text-slate-400" />
+                <h1 className="text-xl font-bold text-slate-900">{brand.name}</h1>
+                <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
+                  brand.visibility === 'national'
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'bg-emerald-100 text-emerald-700'
+                }`}>
+                  {brand.visibility === 'national' ? <Globe className="w-3 h-3" /> : <Layers className="w-3 h-3" />}
+                  {brand.visibility === 'national' ? 'National' : 'Local'}
+                </span>
+              </div>
+              <p className="text-sm text-slate-500 mt-0.5 capitalize">
+                {brand.brand_type || 'Standard'} brand -- {brand.scheduling_mode || 'Static'} scheduling
+              </p>
+            </div>
+          </div>
+          {onUnlink && (
+            <button
+              onClick={onUnlink}
+              className="px-4 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition-colors flex items-center gap-2 text-sm"
+            >
+              <Unlink className="w-4 h-4" /> Unlink Brand
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        {/* Left column: Identity + Colors + Schedule */}
+        <div className="xl:col-span-2 space-y-6">
+          {/* Identity Card */}
+          <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+            <div className="h-2 w-full" style={{ background: `linear-gradient(90deg, ${brand.brand_primary_color || '#64748b'}, ${brand.brand_secondary_color || '#94a3b8'})` }} />
+            <div className="p-6">
+              <h2 className="text-base font-semibold text-slate-900 mb-4">Brand Identity</h2>
+              <div className="flex items-start gap-6">
+                {/* Logo placeholder */}
+                <div
+                  className="w-24 h-24 rounded-xl flex items-center justify-center text-white font-bold text-3xl shrink-0 shadow-inner"
+                  style={{ backgroundColor: brand.brand_primary_color || '#64748b' }}
+                >
+                  {brand.name.charAt(0)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-lg font-bold text-slate-900">{brand.name}</h3>
+                  {brand.description && (
+                    <p className="text-sm text-slate-500 mt-1">{brand.description}</p>
+                  )}
+                  <div className="flex flex-wrap gap-4 mt-3">
+                    <div className="text-sm">
+                      <span className="text-slate-400">Type:</span>{' '}
+                      <span className="text-slate-700 font-medium capitalize">{brand.brand_type || 'Standard'}</span>
+                    </div>
+                    <div className="text-sm">
+                      <span className="text-slate-400">Schedule:</span>{' '}
+                      <span className="text-slate-700 font-medium capitalize">{brand.scheduling_mode || 'Static'}</span>
+                    </div>
+                    <div className="text-sm">
+                      <span className="text-slate-400">Scope:</span>{' '}
+                      <span className="text-slate-700 font-medium">{brand.created_by_store_id ? 'Site-specific' : 'Organization-wide'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Colors Card */}
+          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+                <Palette className="w-4 h-4 text-[#00adf0]" /> Colors
+              </h2>
+              {!editingColors && (
+                <button
+                  onClick={() => setEditingColors(true)}
+                  className="text-xs text-[#00adf0] hover:text-[#0099d6] font-medium transition-colors"
+                >
+                  Edit Colors
+                </button>
+              )}
+            </div>
+
+            {editingColors ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1.5">Primary Color</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={primaryColor}
+                        onChange={(e) => setPrimaryColor(e.target.value)}
+                        className="w-10 h-10 rounded-lg border border-slate-200 cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        value={primaryColor}
+                        onChange={(e) => setPrimaryColor(e.target.value)}
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1.5">Secondary Color</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={secondaryColor}
+                        onChange={(e) => setSecondaryColor(e.target.value)}
+                        className="w-10 h-10 rounded-lg border border-slate-200 cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        value={secondaryColor}
+                        onChange={(e) => setSecondaryColor(e.target.value)}
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => { setEditingColors(false); setPrimaryColor(brand.brand_primary_color || '#64748b'); setSecondaryColor(brand.brand_secondary_color || '#94a3b8'); }}
+                    className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveColors}
+                    disabled={savingColors}
+                    className="px-4 py-1.5 text-sm bg-[#00adf0] text-white rounded-lg hover:bg-[#0099d6] disabled:opacity-50 transition-colors"
+                  >
+                    {savingColors ? 'Saving...' : 'Save Colors'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-3">
+                <ColorSwatch color={brand.brand_primary_color || '#64748b'} label="Primary" />
+                <ColorSwatch color={brand.brand_secondary_color || '#94a3b8'} label="Secondary" />
+                {brand.brand_palette && Array.isArray(brand.brand_palette) && brand.brand_palette.map((c, i) => (
+                  <ColorSwatch key={i} color={c} label={`Palette ${i + 1}`} />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Design Resources Card */}
+          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+            <h2 className="text-base font-semibold text-slate-900 mb-4">Design Resources</h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Fonts */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Type className="w-4 h-4 text-slate-500" />
+                  <h3 className="text-sm font-medium text-slate-700">Fonts</h3>
+                  <span className="text-xs text-slate-400">({fonts.length})</span>
+                </div>
+                {fonts.length > 0 ? (
+                  <div className="space-y-2">
+                    {fonts.map(f => (
+                      <div key={f.id} className="flex items-center gap-3 p-2.5 bg-slate-50 rounded-lg">
+                        <div className="w-8 h-8 bg-slate-200 rounded flex items-center justify-center">
+                          <Type className="w-4 h-4 text-slate-500" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-slate-700 truncate">{f.file_name}</p>
+                          {f.metadata?.weight && (
+                            <p className="text-xs text-slate-400">{f.metadata.weight}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-4 bg-slate-50 rounded-lg text-center">
+                    <Type className="w-6 h-6 mx-auto mb-1.5 text-slate-300" />
+                    <p className="text-xs text-slate-400">No fonts uploaded yet</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Images */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Image className="w-4 h-4 text-slate-500" />
+                  <h3 className="text-sm font-medium text-slate-700">Brand Images</h3>
+                  <span className="text-xs text-slate-400">({images.length})</span>
+                </div>
+                {images.length > 0 ? (
+                  <div className="space-y-2">
+                    {images.map(img => (
+                      <div key={img.id} className="flex items-center gap-3 p-2.5 bg-slate-50 rounded-lg">
+                        <div className="w-8 h-8 bg-slate-200 rounded flex items-center justify-center">
+                          <Image className="w-4 h-4 text-slate-500" />
+                        </div>
+                        <p className="text-sm font-medium text-slate-700 truncate">{img.file_name}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-4 bg-slate-50 rounded-lg text-center">
+                    <Image className="w-6 h-6 mx-auto mb-1.5 text-slate-300" />
+                    <p className="text-xs text-slate-400">No brand images uploaded yet</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {brand.design_notes && (
+              <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-xs font-medium text-amber-700 mb-1">Design Notes</p>
+                <p className="text-sm text-amber-900">{brand.design_notes}</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right column: Schedule Preview + Quick Nav + Subscriptions */}
+        <div className="space-y-6">
+          {/* Schedule Preview */}
+          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-[#00adf0]" /> Active Days
+              </h2>
+            </div>
+            <div className="flex items-center justify-between gap-1 mb-4">
+              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, idx) => {
+                const dayIndex = DAY_INDICES[idx];
+                const isActive = activeDays.includes(dayIndex);
+                return (
+                  <div key={day} className="flex flex-col items-center gap-1.5">
+                    <span className="text-[10px] font-medium text-slate-400 uppercase">{day}</span>
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
+                        isActive ? 'text-white shadow-sm' : 'bg-slate-100 text-slate-300'
+                      }`}
+                      style={isActive ? { backgroundColor: brand.brand_primary_color || '#00adf0' } : undefined}
+                    >
+                      {isActive ? '\u2713' : '\u2013'}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-xs text-slate-400 text-center">
+              {activeDays.length > 0
+                ? `Active ${activeDays.length} day${activeDays.length !== 1 ? 's' : ''} this week`
+                : 'No stations scheduled yet'}
+            </p>
+          </div>
+
+          {/* Quick Navigation */}
+          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+            <h2 className="text-base font-semibold text-slate-900 mb-4">Quick Actions</h2>
+            <div className="space-y-2">
+              {onNavigateToBrandMenus && (
+                <QuickNavButton
+                  icon={<UtensilsCrossed className="w-4 h-4" />}
+                  label="Manage Menus"
+                  description="Create and edit menu zones and items"
+                  onClick={() => onNavigateToBrandMenus(brand.id, brand.name)}
+                />
+              )}
+              {onNavigateToScheduling && (
+                <QuickNavButton
+                  icon={<Calendar className="w-4 h-4" />}
+                  label="View Schedule"
+                  description="Station scheduling and assignments"
+                  onClick={onNavigateToScheduling}
+                />
+              )}
+              {onNavigateToProducts && (
+                <QuickNavButton
+                  icon={<Package className="w-4 h-4" />}
+                  label="View Products"
+                  description="Product pool for this brand"
+                  onClick={onNavigateToProducts}
+                />
+              )}
+              {!onNavigateToBrandMenus && !onNavigateToScheduling && !onNavigateToProducts && (
+                <p className="text-sm text-slate-400 text-center py-3">
+                  Navigation actions will appear once connected from your dashboard.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Subscription Info */}
+          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+            <h2 className="text-base font-semibold text-slate-900 mb-4">Linked Companies</h2>
+            {linkedCompanies.length > 0 ? (
+              <div className="space-y-2">
+                {linkedCompanies.map(company => (
+                  <div key={company.id} className="flex items-center gap-3 p-2.5 bg-slate-50 rounded-lg">
+                    <div className="w-8 h-8 rounded-lg bg-slate-200 flex items-center justify-center text-slate-500 text-xs font-bold">
+                      {company.name.charAt(0)}
+                    </div>
+                    <span className="text-sm font-medium text-slate-700">{company.name}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400 text-center py-3">No companies linked</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Small Components ─── */
+
+function ColorSwatch({ color, label }: { color: string; label: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="w-8 h-8 rounded-lg border border-slate-200 shadow-inner" style={{ backgroundColor: color }} />
+      <div>
+        <p className="text-xs text-slate-400">{label}</p>
+        <p className="text-xs font-mono text-slate-600">{color}</p>
+      </div>
+    </div>
+  );
+}
+
+function QuickNavButton({ icon, label, description, onClick }: {
+  icon: React.ReactNode;
+  label: string;
+  description: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-[#00adf0] hover:bg-blue-50/50 transition-all group text-left"
+    >
+      <div className="w-9 h-9 rounded-lg bg-slate-100 group-hover:bg-[#00adf0]/10 flex items-center justify-center text-slate-500 group-hover:text-[#00adf0] transition-colors shrink-0">
+        {icon}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-slate-800 group-hover:text-[#00adf0] transition-colors">{label}</p>
+        <p className="text-xs text-slate-400">{description}</p>
+      </div>
+      <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-[#00adf0] transition-colors shrink-0" />
+    </button>
+  );
+}
+
+/* ─── Create Sub-Brand Modal ─── */
 
 function CreateSubBrandModal({ wrapperBrands, onClose, onCreate }: {
   wrapperBrands: Brand[];
@@ -497,7 +1002,7 @@ function CreateSubBrandModal({ wrapperBrands, onClose, onCreate }: {
   const [color, setColor] = useState('#3b82f6');
   const [saving, setSaving] = useState(false);
 
-  const colorOptions = ['#3b82f6', '#6B4226', '#2D8B4E', '#dc2626', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899'];
+  const colorOptions = ['#3b82f6', '#6B4226', '#2D8B4E', '#dc2626', '#f59e0b', '#06b6d4', '#ec4899', '#14b8a6'];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -509,47 +1014,44 @@ function CreateSubBrandModal({ wrapperBrands, onClose, onCreate }: {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-white">Create Sub-Brand</h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between p-6 border-b border-slate-200">
+          <h2 className="text-lg font-bold text-slate-900">Create Local Brand</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg">
             <X className="w-5 h-5 text-slate-500" />
           </button>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Brand Name</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Brand Name</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Coffee-764, Fresh Bowls"
-              className="w-full px-3 py-2.5 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
               autoFocus
             />
           </div>
 
           {wrapperBrands.length > 0 && (
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Parent Brand Group</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Parent Brand Group</label>
               <select
                 value={parentId || ''}
                 onChange={(e) => setParentId(e.target.value ? Number(e.target.value) : null)}
-                className="w-full px-3 py-2.5 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">None (standalone)</option>
                 {wrapperBrands.map(w => (
                   <option key={w.id} value={w.id}>{w.name}</option>
                 ))}
               </select>
-              <p className="text-xs text-slate-500 mt-1">
-                Group this sub-brand under an existing brand wrapper for organization.
-              </p>
             </div>
           )}
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Brand Color</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Brand Color</label>
             <div className="flex gap-2 flex-wrap">
               {colorOptions.map(c => (
                 <button
@@ -557,7 +1059,7 @@ function CreateSubBrandModal({ wrapperBrands, onClose, onCreate }: {
                   type="button"
                   onClick={() => setColor(c)}
                   className={`w-8 h-8 rounded-lg border-2 transition-all ${
-                    color === c ? 'border-slate-900 dark:border-white scale-110' : 'border-transparent'
+                    color === c ? 'border-slate-900 scale-110' : 'border-transparent'
                   }`}
                   style={{ backgroundColor: c }}
                 />
@@ -565,27 +1067,16 @@ function CreateSubBrandModal({ wrapperBrands, onClose, onCreate }: {
             </div>
           </div>
 
-          <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              Sub-brands are scoped to your location and won't appear in the main navigation.
-              They have full menu, scheduling, and product capabilities. You can share them with other locations later.
-            </p>
-          </div>
-
           <div className="flex justify-end gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-            >
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors">
               Cancel
             </button>
             <button
               type="submit"
               disabled={!name.trim() || saving}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-4 py-2 text-sm font-medium text-white bg-[#00adf0] rounded-lg hover:bg-[#0099d6] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {saving ? 'Creating...' : 'Create Sub-Brand'}
+              {saving ? 'Creating...' : 'Create Brand'}
             </button>
           </div>
         </form>
@@ -594,266 +1085,7 @@ function CreateSubBrandModal({ wrapperBrands, onClose, onCreate }: {
   );
 }
 
-function MenusTab({ menus, brandColor }: { menus: Menu[]; brandColor: string | null }) {
-  if (menus.length === 0) {
-    return (
-      <div className="text-center py-12 text-slate-500">
-        <UtensilsCrossed className="w-10 h-10 mx-auto mb-3 opacity-40" />
-        <p>No menus created yet.</p>
-        <button className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
-          <Plus className="w-4 h-4" /> Create First Menu
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      {menus.map(menu => (
-        <div
-          key={menu.id}
-          className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 hover:shadow-md transition-shadow cursor-pointer"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div
-                className="w-2 h-10 rounded-full"
-                style={{ backgroundColor: brandColor || '#3b82f6' }}
-              />
-              <div>
-                <h3 className="font-semibold text-slate-900 dark:text-white">{menu.name}</h3>
-                <div className="flex items-center gap-3 mt-0.5">
-                  {menu.daypart_label && (
-                    <span className="inline-flex items-center gap-1 text-xs text-slate-500">
-                      <Clock className="w-3 h-3" /> {menu.daypart_label}
-                    </span>
-                  )}
-                  <span className="text-xs text-slate-500">
-                    {menu.zone_count} zone{menu.zone_count !== 1 ? 's' : ''} &middot; {menu.item_count} item{menu.item_count !== 1 ? 's' : ''}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                menu.status === 'active'
-                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                  : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400'
-              }`}>
-                {menu.status}
-              </span>
-              <ChevronRight className="w-4 h-4 text-slate-400" />
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ScheduleTab({ schedules }: { schedules: Station[] }) {
-  if (schedules.length === 0) {
-    return (
-      <div className="text-center py-12 text-slate-500">
-        <Calendar className="w-10 h-10 mx-auto mb-3 opacity-40" />
-        <p>No station schedules set up yet.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2 mb-2">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">This Week's Schedule</h2>
-        <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-2 py-0.5 rounded-full font-medium">
-          Cycle Week 1
-        </span>
-      </div>
-
-      <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <div className="grid grid-cols-[180px_repeat(7,1fr)] border-b border-slate-200 dark:border-slate-700">
-          <div className="p-3 text-xs font-medium text-slate-500 uppercase">Station</div>
-          {DAY_NAMES.map((day, idx) => (
-            <div
-              key={day}
-              className={`p-3 text-xs font-medium text-center uppercase ${
-                idx === TODAY_INDEX
-                  ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 font-bold'
-                  : 'text-slate-500'
-              }`}
-            >
-              {day}
-              {idx === TODAY_INDEX && (
-                <div className="w-1.5 h-1.5 bg-blue-600 rounded-full mx-auto mt-1"></div>
-              )}
-            </div>
-          ))}
-        </div>
-
-        {schedules.map(station => (
-          <div key={station.id} className="grid grid-cols-[180px_repeat(7,1fr)] border-b last:border-b-0 border-slate-100 dark:border-slate-700">
-            <div className="p-3">
-              <div className="text-sm font-medium text-slate-900 dark:text-white">{station.name}</div>
-              <div className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
-                <MapPin className="w-3 h-3" /> {station.store_name}
-              </div>
-            </div>
-            {DAY_NAMES.map((_, dayIdx) => {
-              const isActive = station.days_of_week.includes(dayIdx);
-              const isToday = dayIdx === TODAY_INDEX;
-              return (
-                <div
-                  key={dayIdx}
-                  className={`p-2 flex items-center justify-center ${
-                    isToday ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''
-                  }`}
-                >
-                  {isActive ? (
-                    <div className={`w-full max-w-[80px] px-2 py-1.5 rounded-md text-center text-xs font-medium ${
-                      isToday
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
-                    }`}>
-                      {station.brand_name.length > 10 ? station.brand_name.substring(0, 10) + '...' : station.brand_name}
-                    </div>
-                  ) : (
-                    <div className="w-full max-w-[80px] px-2 py-1.5 rounded-md text-center text-xs text-slate-300 dark:text-slate-600">
-                      &mdash;
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ProductsTab({ products }: { products: any[] }) {
-  if (products.length === 0) {
-    return (
-      <div className="text-center py-12 text-slate-500">
-        <Package className="w-10 h-10 mx-auto mb-3 opacity-40" />
-        <p>No products in this brand's pool yet.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Product Pool</h2>
-        <span className="text-sm text-slate-500">{products.length} products</span>
-      </div>
-      <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700">
-        {products.map(product => (
-          <div key={product.id} className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors">
-            <div>
-              <span className="text-sm font-medium text-slate-900 dark:text-white">{product.name}</span>
-              {product.sku && (
-                <span className="ml-2 text-xs text-slate-400">SKU: {product.sku}</span>
-              )}
-            </div>
-            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-              product.status === 'active'
-                ? 'bg-emerald-100 text-emerald-700'
-                : 'bg-slate-100 text-slate-600'
-            }`}>
-              {product.status || 'draft'}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function SettingsTab({ brand }: { brand: Brand }) {
-  return (
-    <div className="max-w-xl space-y-6">
-      <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
-        <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Brand Settings</h3>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Brand Name</label>
-            <input
-              type="text"
-              value={brand.name}
-              readOnly
-              className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Brand Type</label>
-              <div className="px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white capitalize">
-                {brand.brand_type || 'Not set'}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Scheduling Mode</label>
-              <div className="px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white capitalize">
-                {brand.scheduling_mode || 'Not set'}
-              </div>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Visibility</label>
-              <div className={`px-3 py-2 rounded-lg text-sm font-medium inline-flex items-center gap-2 ${
-                brand.visibility === 'national'
-                  ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                  : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-              }`}>
-                {brand.visibility === 'national' ? <Globe className="w-3.5 h-3.5" /> : <Layers className="w-3.5 h-3.5" />}
-                {brand.visibility === 'national' ? 'National' : 'Local (Sub-Brand)'}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Scope</label>
-              <div className="px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white">
-                {brand.created_by_store_id ? 'Site-specific' : 'Organization-wide'}
-              </div>
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Brand Colors</label>
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <div
-                  className="w-8 h-8 rounded-lg border border-slate-200"
-                  style={{ backgroundColor: brand.brand_primary_color || '#e2e8f0' }}
-                />
-                <span className="text-xs text-slate-500">Primary</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div
-                  className="w-8 h-8 rounded-lg border border-slate-200"
-                  style={{ backgroundColor: brand.brand_secondary_color || '#e2e8f0' }}
-                />
-                <span className="text-xs text-slate-500">Secondary</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {brand.visibility === 'local' && (
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">Share This Sub-Brand</h3>
-          <p className="text-sm text-slate-500 mb-4">
-            Make this sub-brand available to other locations by sharing it to another brand group.
-          </p>
-          <button className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
-            <Share2 className="w-4 h-4" /> Share to Another Location
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
+/* ─── Link National Brand Modal ─── */
 
 function LinkNationalBrandModal({ existingBrandIds, onClose, onLink }: {
   existingBrandIds: number[];
@@ -876,7 +1108,6 @@ function LinkNationalBrandModal({ existingBrandIds, onClose, onLink }: {
       .eq('visibility', 'national')
       .eq('is_wrapper', false)
       .order('name');
-
     if (data) {
       setAvailableBrands(data.filter(b => !existingBrandIds.includes(b.id)));
     }
@@ -895,13 +1126,13 @@ function LinkNationalBrandModal({ existingBrandIds, onClose, onLink }: {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
-        <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between p-6 border-b border-slate-200">
           <div>
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white">Link National Brand</h2>
+            <h2 className="text-lg font-bold text-slate-900">Link National Brand</h2>
             <p className="text-sm text-slate-500 mt-0.5">Add an existing brand to this location</p>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg">
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg">
             <X className="w-5 h-5 text-slate-500" />
           </button>
         </div>
@@ -913,7 +1144,7 @@ function LinkNationalBrandModal({ existingBrandIds, onClose, onLink }: {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search brands..."
-              className="w-full px-3 py-2.5 pl-9 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="w-full px-3 py-2.5 pl-9 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
               autoFocus
             />
             <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -923,7 +1154,7 @@ function LinkNationalBrandModal({ existingBrandIds, onClose, onLink }: {
         <div className="flex-1 overflow-y-auto p-6 pt-4 space-y-2">
           {loading ? (
             <div className="flex items-center justify-center py-8">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#00adf0]"></div>
             </div>
           ) : filtered.length === 0 ? (
             <div className="text-center py-8 text-slate-500">
@@ -934,7 +1165,7 @@ function LinkNationalBrandModal({ existingBrandIds, onClose, onLink }: {
             filtered.map(brand => (
               <div
                 key={brand.id}
-                className="flex items-center justify-between p-3 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors"
+                className="flex items-center justify-between p-3 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
               >
                 <div className="flex items-center gap-3">
                   <div
@@ -944,14 +1175,14 @@ function LinkNationalBrandModal({ existingBrandIds, onClose, onLink }: {
                     {brand.name.charAt(0)}
                   </div>
                   <div>
-                    <span className="text-sm font-medium text-slate-900 dark:text-white">{brand.name}</span>
+                    <span className="text-sm font-medium text-slate-900">{brand.name}</span>
                     <span className="text-xs text-slate-500 ml-2 capitalize">{brand.brand_type || 'Standard'}</span>
                   </div>
                 </div>
                 <button
                   onClick={() => handleLink(brand.id)}
                   disabled={linking === brand.id}
-                  className="px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-50 transition-colors"
+                  className="px-3 py-1.5 text-xs font-medium text-[#00adf0] bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-50 transition-colors"
                 >
                   {linking === brand.id ? 'Linking...' : 'Link'}
                 </button>
