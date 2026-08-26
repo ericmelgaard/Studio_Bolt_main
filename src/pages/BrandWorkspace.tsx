@@ -76,6 +76,19 @@ export default function BrandWorkspace({ userConceptId, userCompanyId, userStore
         .select('concept_id')
         .eq('company_id', userCompanyId);
       if (data) brandIds = data.map(d => d.concept_id);
+    } else if (userStoreId) {
+      const { data: storeData } = await supabase
+        .from('stores')
+        .select('company_id')
+        .eq('id', userStoreId)
+        .single();
+      if (storeData?.company_id) {
+        const { data } = await supabase
+          .from('company_brands')
+          .select('concept_id')
+          .eq('company_id', storeData.company_id);
+        if (data) brandIds = data.map(d => d.concept_id);
+      }
     } else {
       const { data } = await supabase
         .from('company_brands')

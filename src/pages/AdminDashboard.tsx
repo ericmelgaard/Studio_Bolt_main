@@ -471,7 +471,7 @@ export default function AdminDashboard({ onBack, user }: AdminDashboardProps) {
                 }}
               />
             )}
-            {currentView === 'brands' && <BrandWorkspace onBack={() => setCurrentView('dashboard')} />}
+            {currentView === 'brands' && <BrandWorkspace userConceptId={user.concept_id || location.concept?.id} userCompanyId={user.company_id || location.company?.id} userStoreId={user.store_id || location.store?.id} onBack={() => setCurrentView('dashboard')} />}
             {currentView === 'brand-menus' && brandContext && (
               <BrandMenuManagement brandId={brandContext.id} brandName={brandContext.name} onBack={() => setCurrentView('brands')} />
             )}
