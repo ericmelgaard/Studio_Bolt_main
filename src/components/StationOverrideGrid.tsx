@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronRight, ChevronDown, Layers, RotateCcw, Edit2, Trash2 } from 'lucide-react';
+import { ChevronRight, ChevronDown, Layers, RotateCcw, CreditCard as Edit2, Trash2 } from 'lucide-react';
 
 interface StationGroup {
   id: string;
@@ -147,7 +147,7 @@ export default function StationOverrideGrid({
               </span>
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button
-                  onClick={() => handleAddOverride(station.id)
+                  onClick={() => handleAddOverride(station.id)}
                   className="p-1.5 text-purple-600 hover:bg-purple-50 rounded transition-colors"
                   title="Edit override"
                 >
