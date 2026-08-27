@@ -3,6 +3,7 @@ import {
   Calendar, Plus, X, ChevronLeft, ChevronRight, Trash2,
   Coffee, Sun, Sunset, Moon, Check, Repeat, RotateCcw,
   CalendarDays, Copy, ClipboardPaste, Pencil, CalendarRange,
+  LayoutTemplate, ArrowRight, Link2,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
@@ -163,6 +164,8 @@ function useToast() {
 
 /* ─── Main Component ─── */
 
+type ViewMode = 'template' | 'week';
+
 export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }: Props) {
   const [groups, setGroups] = useState<ScheduleGroup[]>([]);
   const [entries, setEntries] = useState<GroupEntry[]>([]);
@@ -176,30 +179,27 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
   const [confirmRevert, setConfirmRevert] = useState(false);
   const [repeatWeeksInput, setRepeatWeeksInput] = useState('2');
 
+  const [viewMode, setViewMode] = useState<ViewMode>('template');
   const [selectedWeek, setSelectedWeek] = useState<Date>(() => getMondayOfWeek(new Date()));
   const [calendarStart, setCalendarStart] = useState(() => getMondayOfWeek(new Date()));
 
-  // Copy/paste state
   const [copiedWeekData, setCopiedWeekData] = useState<{ entries: GroupEntry[]; sourceName: string } | null>(null);
   const [showPasteConfirm, setShowPasteConfirm] = useState(false);
+  const [pasteTarget, setPasteTarget] = useState<'week' | 'template'>('week');
 
-  // Inline naming
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState('');
   const nameRef = useRef<HTMLInputElement>(null);
 
-  // Inline date editing
   const [editingStartDate, setEditingStartDate] = useState(false);
   const [editingEndDate, setEditingEndDate] = useState(false);
   const [startDateInput, setStartDateInput] = useState('');
   const [endDateInput, setEndDateInput] = useState('');
 
-  // New schedule creation prompt
   const [showCreatePrompt, setShowCreatePrompt] = useState(false);
   const [createName, setCreateName] = useState('');
   const [createStartDate, setCreateStartDate] = useState('');
   const [createEndDate, setCreateEndDate] = useState('');
-  const [pendingCreateAction, setPendingCreateAction] = useState<'customize' | 'first-station' | null>(null);
 
   const { msg: toastMsg, show: showToast } = useToast();
   const todayMonday = useMemo(() => getMondayOfWeek(new Date()), []);
@@ -235,6 +235,12 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
 
   /* ─── Derived state ─── */
 
+  const baseGroup = useMemo(() => groups.find(g => g.is_base) || null, [groups]);
+  const baseEntries = useMemo(() => {
+    if (!baseGroup) return [];
+    return entries.filter(e => e.group_id === baseGroup.id);
+  }, [baseGroup, entries]);
+
   const calendarWeeks = useMemo(() => {
     const weeks: Date[] = [];
     for (let i = 0; i < 8; i++) weeks.push(addWeeks(calendarStart, i));
@@ -256,21 +262,43 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
     return entries.filter(e => e.group_id === resolvedGroup.id);
   }, [resolvedGroup, entries]);
 
-  const isBaseWeek = resolvedGroup?.is_base ?? false;
+  const isInherited = viewMode === 'week' && resolvedGroup?.is_base === true;
   const isOwnOverride = resolvedGroup && !resolvedGroup.is_base &&
     isSameWeek(parseDate(resolvedGroup.start_date), selectedWeek) && !resolvedGroup.recurrence_weeks;
+
+  // What entries and group does the active view show?
+  const activeGroup = viewMode === 'template' ? baseGroup : resolvedGroup;
+  const activeEntries = viewMode === 'template' ? baseEntries : weekEntries;
+  const isReadOnly = viewMode === 'week' && isInherited;
 
   const groupDisplayName = (g: ScheduleGroup | null): string => {
     if (!g) return 'No schedule';
     if (g.name) return g.name;
-    if (g.is_base) return 'Default Schedule';
+    if (g.is_base) return 'Week Template';
     return 'Untitled';
   };
 
-  /* ─── Schedule Creation ─── */
+  /* ─── Template Creation (ensure base exists) ─── */
 
-  const openCreatePrompt = (action: 'customize' | 'first-station') => {
-    setPendingCreateAction(action);
+  const ensureBaseGroup = async (): Promise<ScheduleGroup> => {
+    if (baseGroup) return baseGroup;
+    const { data } = await supabase.from('brand_schedule_groups').insert({
+      brand_id: brandId,
+      store_id: userStoreId || null,
+      name: null,
+      start_date: formatDateISO(getMondayOfWeek(new Date())),
+      end_date: null,
+      recurrence_weeks: null,
+      is_base: true,
+    }).select().maybeSingle();
+    const newGroup = data as ScheduleGroup;
+    setGroups(prev => [...prev, newGroup]);
+    return newGroup;
+  };
+
+  /* ─── Customize Week (create override from template or current) ─── */
+
+  const openCreatePrompt = () => {
     setCreateName('');
     setCreateStartDate(formatDateISO(selectedWeek));
     setCreateEndDate('');
@@ -281,28 +309,7 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
     setSaving(true);
     setShowCreatePrompt(false);
 
-    if (pendingCreateAction === 'first-station') {
-      const { data } = await supabase.from('brand_schedule_groups').insert({
-        brand_id: brandId,
-        store_id: userStoreId || null,
-        name: createName || null,
-        start_date: createStartDate || formatDateISO(selectedWeek),
-        end_date: createEndDate || null,
-        recurrence_weeks: null,
-        is_base: true,
-      }).select().maybeSingle();
-
-      if (data) {
-        setGroups(prev => [...prev, data as ScheduleGroup]);
-        showToast('Schedule created');
-      }
-      setSaving(false);
-      setShowAddStation(true);
-      return;
-    }
-
-    // customize week
-    if (!resolvedGroup) { setSaving(false); return; }
+    const sourceGroup = resolvedGroup;
     const startDate = createStartDate || formatDateISO(selectedWeek);
     const endAdj = new Date(selectedWeek);
     endAdj.setDate(endAdj.getDate() + 6);
@@ -318,7 +325,7 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
     }).select().maybeSingle();
 
     if (newGroup) {
-      const sourceEntries = entries.filter(e => e.group_id === resolvedGroup.id);
+      const sourceEntries = sourceGroup ? entries.filter(e => e.group_id === sourceGroup.id) : [];
       if (sourceEntries.length > 0) {
         const newEntries = sourceEntries.map(e => ({
           group_id: newGroup.id,
@@ -338,17 +345,17 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
   /* ─── Inline Rename ─── */
 
   const startRename = () => {
-    if (!resolvedGroup) return;
-    setNameInput(resolvedGroup.name || '');
+    if (!activeGroup) return;
+    setNameInput(activeGroup.name || '');
     setEditingName(true);
     setTimeout(() => nameRef.current?.focus(), 50);
   };
 
   const saveRename = async () => {
-    if (!resolvedGroup) return;
+    if (!activeGroup) return;
     const newName = nameInput.trim() || null;
-    await supabase.from('brand_schedule_groups').update({ name: newName, updated_at: new Date().toISOString() }).eq('id', resolvedGroup.id);
-    setGroups(prev => prev.map(g => g.id === resolvedGroup.id ? { ...g, name: newName } : g));
+    await supabase.from('brand_schedule_groups').update({ name: newName, updated_at: new Date().toISOString() }).eq('id', activeGroup.id);
+    setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, name: newName } : g));
     setEditingName(false);
     showToast('Name updated');
   };
@@ -356,18 +363,18 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
   /* ─── Date Editing ─── */
 
   const saveStartDate = async () => {
-    if (!resolvedGroup || !startDateInput) return;
-    await supabase.from('brand_schedule_groups').update({ start_date: startDateInput, updated_at: new Date().toISOString() }).eq('id', resolvedGroup.id);
-    setGroups(prev => prev.map(g => g.id === resolvedGroup.id ? { ...g, start_date: startDateInput } : g));
+    if (!activeGroup || !startDateInput) return;
+    await supabase.from('brand_schedule_groups').update({ start_date: startDateInput, updated_at: new Date().toISOString() }).eq('id', activeGroup.id);
+    setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, start_date: startDateInput } : g));
     setEditingStartDate(false);
     showToast('Start date updated');
   };
 
   const saveEndDate = async () => {
-    if (!resolvedGroup) return;
+    if (!activeGroup) return;
     const endDate = endDateInput || null;
-    await supabase.from('brand_schedule_groups').update({ end_date: endDate, updated_at: new Date().toISOString() }).eq('id', resolvedGroup.id);
-    setGroups(prev => prev.map(g => g.id === resolvedGroup.id ? { ...g, end_date: endDate } : g));
+    await supabase.from('brand_schedule_groups').update({ end_date: endDate, updated_at: new Date().toISOString() }).eq('id', activeGroup.id);
+    setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, end_date: endDate } : g));
     setEditingEndDate(false);
     showToast(endDate ? 'End date updated' : 'End date removed');
   };
@@ -375,22 +382,22 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
   /* ─── Recurrence ─── */
 
   const setRecurrence = async (weeks: number) => {
-    if (!resolvedGroup || resolvedGroup.is_base) return;
+    if (!activeGroup || activeGroup.is_base) return;
     setSaving(true);
     await supabase.from('brand_schedule_groups').update({
       recurrence_weeks: weeks, end_date: null, updated_at: new Date().toISOString(),
-    }).eq('id', resolvedGroup.id);
-    setGroups(prev => prev.map(g => g.id === resolvedGroup.id ? { ...g, recurrence_weeks: weeks, end_date: null } : g));
+    }).eq('id', activeGroup.id);
+    setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, recurrence_weeks: weeks, end_date: null } : g));
     setShowRepeatPopover(false);
     setSaving(false);
     showToast(`Now repeats every ${weeks} week${weeks > 1 ? 's' : ''}`);
   };
 
   const stopRecurrence = async () => {
-    if (!resolvedGroup) return;
+    if (!activeGroup) return;
     setSaving(true);
-    await supabase.from('brand_schedule_groups').update({ recurrence_weeks: null, updated_at: new Date().toISOString() }).eq('id', resolvedGroup.id);
-    setGroups(prev => prev.map(g => g.id === resolvedGroup.id ? { ...g, recurrence_weeks: null } : g));
+    await supabase.from('brand_schedule_groups').update({ recurrence_weeks: null, updated_at: new Date().toISOString() }).eq('id', activeGroup.id);
+    setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, recurrence_weeks: null } : g));
     setSaving(false);
     showToast('Recurrence removed');
   };
@@ -405,38 +412,55 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
     setEntries(prev => prev.filter(e => e.group_id !== resolvedGroup.id));
     setConfirmRevert(false);
     setSaving(false);
-    showToast('Reverted to default schedule');
+    showToast('Reverted to template');
   };
 
-  /* ─── Copy / Paste Week ─── */
+  /* ─── Copy / Paste ─── */
 
-  const copyWeek = () => {
-    if (weekEntries.length === 0) return;
-    setCopiedWeekData({
-      entries: weekEntries.map(e => ({ ...e })),
-      sourceName: `${groupDisplayName(resolvedGroup)} (${formatShortDate(selectedWeek)})`,
-    });
-    showToast('Week copied \u2014 navigate to another week and paste');
+  const copyEntries = (ents: GroupEntry[], name: string) => {
+    setCopiedWeekData({ entries: ents.map(e => ({ ...e })), sourceName: name });
+    showToast('Copied \u2014 navigate and paste');
   };
 
-  const pasteWeek = async () => {
+  const pasteToTemplate = async () => {
+    if (!copiedWeekData) return;
+    setShowPasteConfirm(false);
+    setSaving(true);
+
+    const tpl = await ensureBaseGroup();
+    await supabase.from('brand_schedule_group_entries').delete().eq('group_id', tpl.id);
+    setEntries(prev => prev.filter(e => e.group_id !== tpl.id));
+
+    const newEntries = copiedWeekData.entries.map(e => ({
+      group_id: tpl.id,
+      station_id: e.station_id,
+      days_of_week: [...e.days_of_week],
+      daypart_id: e.daypart_id,
+    }));
+    const { data: inserted } = await supabase.from('brand_schedule_group_entries').insert(newEntries).select();
+    if (inserted) setEntries(prev => [...prev, ...(inserted as GroupEntry[])]);
+
+    setSaving(false);
+    setViewMode('template');
+    showToast('Template updated');
+  };
+
+  const pasteToWeek = async () => {
     if (!copiedWeekData) return;
     setShowPasteConfirm(false);
     setSaving(true);
 
     const existing = resolveGroupForWeek(selectedWeek, groups);
-    const isOwnGroup = existing && !existing.is_base &&
+    const isOwn = existing && !existing.is_base &&
       isSameWeek(parseDate(existing.start_date), selectedWeek) && !existing.recurrence_weeks;
 
     let targetGroupId: string;
 
-    if (isOwnGroup && existing) {
-      // Replace entries in existing override
+    if (isOwn && existing) {
       await supabase.from('brand_schedule_group_entries').delete().eq('group_id', existing.id);
       setEntries(prev => prev.filter(e => e.group_id !== existing.id));
       targetGroupId = existing.id;
     } else {
-      // Create new override for this week
       const endAdj = new Date(selectedWeek);
       endAdj.setDate(endAdj.getDate() + 6);
       const { data: newGroup } = await supabase.from('brand_schedule_groups').insert({
@@ -468,24 +492,29 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
 
   /* ─── Entry CRUD ─── */
 
-  const handleAddStation = () => {
-    if (groups.length === 0) {
-      openCreatePrompt('first-station');
+  const handleAddStation = async () => {
+    if (viewMode === 'template') {
+      await ensureBaseGroup();
+      setShowAddStation(true);
     } else {
+      if (!resolvedGroup && !baseGroup) {
+        await ensureBaseGroup();
+        setViewMode('template');
+      }
       setShowAddStation(true);
     }
   };
 
   const addStationToGroup = async (stationId: number, daypartId: string | null) => {
     setSaving(true);
-    let targetGroup = resolvedGroup;
-    if (!targetGroup) {
-      const existing = groups.find(g => g.is_base);
-      if (existing) {
-        targetGroup = existing;
-      } else {
-        setSaving(false);
-        return;
+    let targetGroup: ScheduleGroup | null = null;
+
+    if (viewMode === 'template') {
+      targetGroup = await ensureBaseGroup();
+    } else {
+      targetGroup = resolvedGroup;
+      if (!targetGroup) {
+        targetGroup = await ensureBaseGroup();
       }
     }
 
@@ -519,6 +548,21 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
     showToast('Station removed');
   };
 
+  const selectWeek = (ws: Date) => {
+    setSelectedWeek(ws);
+    setViewMode('week');
+    setEditingName(false);
+    setEditingStartDate(false);
+    setEditingEndDate(false);
+  };
+
+  const selectTemplate = () => {
+    setViewMode('template');
+    setEditingName(false);
+    setEditingStartDate(false);
+    setEditingEndDate(false);
+  };
+
   /* ─── Render ─── */
 
   if (loading) {
@@ -538,7 +582,7 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
 
-      {/* ──── Header + Week Navigator ──── */}
+      {/* ──── Header ──── */}
       <div className="px-6 py-4 border-b border-slate-200">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -556,35 +600,9 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
             </div>
           )}
         </div>
-
-        <div className="flex items-center gap-3 mt-3">
-          <button onClick={() => setSelectedWeek(addWeeks(selectedWeek, -1))}
-            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors">
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <div className="text-center">
-            <p className="text-sm font-bold text-slate-900">Week of {formatShortDate(selectedWeek)}</p>
-            <p className="text-[11px] text-slate-400">
-              {formatShortDate(selectedWeek)} &ndash; {formatShortDate(weekEnd)}
-              {isSameWeek(selectedWeek, todayMonday) && (
-                <span className="ml-1.5 text-[10px] font-bold text-blue-600 uppercase">This week</span>
-              )}
-            </p>
-          </div>
-          <button onClick={() => setSelectedWeek(addWeeks(selectedWeek, 1))}
-            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors">
-            <ChevronRight className="w-4 h-4" />
-          </button>
-          {!isSameWeek(selectedWeek, todayMonday) && (
-            <button onClick={() => setSelectedWeek(getMondayOfWeek(new Date()))}
-              className="ml-1 text-[11px] text-[#00adf0] hover:text-[#0099d6] font-medium">
-              Today
-            </button>
-          )}
-        </div>
       </div>
 
-      {/* ──── 8-Week Timeline ──── */}
+      {/* ──── Template + Timeline Strip ──── */}
       <div className="px-6 py-3 border-b border-slate-100 bg-slate-50/50">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
@@ -600,123 +618,240 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
           </div>
-          <button onClick={() => { setCalendarStart(getMondayOfWeek(new Date())); setSelectedWeek(getMondayOfWeek(new Date())); }}
+          <button onClick={() => { setCalendarStart(todayMonday); selectWeek(todayMonday); }}
             className="text-[10px] text-[#00adf0] hover:text-[#0099d6] font-medium">
             Jump to today
           </button>
         </div>
 
-        <div className="grid grid-cols-8 gap-1">
-          {calendarWeeks.map((ws) => {
-            const resolved = weekResolutions.get(formatDateISO(ws));
-            const isSelected = isSameWeek(ws, selectedWeek);
-            const isCurrent = isSameWeek(ws, todayMonday);
-            const wEntries = resolved ? entries.filter(e => e.group_id === resolved.id) : [];
-            const stationCount = wEntries.length;
-            const hasSchedule = !!resolved;
-            const hasContent = stationCount > 0;
+        <div className="flex gap-1.5">
+          {/* Template card */}
+          <button
+            onClick={selectTemplate}
+            className={`shrink-0 w-[88px] rounded-lg p-1.5 text-center transition-all border-2 ${
+              viewMode === 'template'
+                ? 'border-slate-500 bg-white shadow-md ring-1 ring-slate-400'
+                : 'border-dashed border-slate-300 bg-white/60 hover:bg-white hover:border-slate-400'
+            }`}
+            style={{
+              backgroundImage: viewMode !== 'template' ? 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(148,163,184,0.07) 4px, rgba(148,163,184,0.07) 8px)' : undefined,
+            }}
+          >
+            <div className="flex items-center justify-center gap-1 mb-1">
+              <LayoutTemplate className={`w-3 h-3 ${viewMode === 'template' ? 'text-slate-700' : 'text-slate-400'}`} />
+              <span className={`text-[9px] font-bold uppercase tracking-wider ${viewMode === 'template' ? 'text-slate-800' : 'text-slate-500'}`}>
+                Template
+              </span>
+            </div>
+            <div className="h-1.5 rounded-full mx-auto bg-slate-500" style={{ width: '100%' }} />
+            <p className="text-[9px] text-slate-400 mt-1">
+              {baseEntries.length > 0 ? `${baseEntries.length} stn${baseEntries.length !== 1 ? 's' : ''}` : 'empty'}
+            </p>
+          </button>
 
-            let barColor: string;
-            let barStyle: string;
-            if (!hasSchedule) {
-              barColor = 'transparent';
-              barStyle = 'border border-dashed border-slate-300';
-            } else if (!hasContent) {
-              barColor = 'transparent';
-              barStyle = `border-2 border-dashed`;
-            } else {
-              barColor = resolved!.is_base ? '#94a3b8' : getGroupColor(resolved!.id, groups);
-              barStyle = '';
-            }
+          {/* Divider */}
+          <div className="flex items-center px-0.5">
+            <ArrowRight className="w-3 h-3 text-slate-300" />
+          </div>
 
-            const borderDashColor = hasSchedule && !hasContent
-              ? (resolved!.is_base ? '#94a3b8' : getGroupColor(resolved!.id, groups))
-              : undefined;
+          {/* 8 calendar weeks */}
+          <div className="grid grid-cols-8 gap-1 flex-1 min-w-0">
+            {calendarWeeks.map((ws) => {
+              const resolved = weekResolutions.get(formatDateISO(ws));
+              const isSelected = viewMode === 'week' && isSameWeek(ws, selectedWeek);
+              const isCurrent = isSameWeek(ws, todayMonday);
+              const wEntries = resolved ? entries.filter(e => e.group_id === resolved.id) : [];
+              const stationCount = wEntries.length;
+              const hasSchedule = !!resolved;
+              const hasContent = stationCount > 0;
+              const inheritsTemplate = hasSchedule && resolved!.is_base;
 
-            return (
-              <button
-                key={formatDateISO(ws)}
-                onClick={() => setSelectedWeek(ws)}
-                className={`rounded-lg p-1.5 text-center transition-all border ${
-                  isSelected
-                    ? 'border-slate-400 bg-white shadow-sm ring-1 ring-slate-300'
-                    : isCurrent
-                      ? 'border-blue-200 bg-blue-50/50 hover:bg-blue-50'
-                      : 'border-transparent hover:bg-white hover:border-slate-200'
-                }`}
-              >
-                <p className={`text-[10px] font-semibold mb-1 ${isSelected ? 'text-slate-900' : isCurrent ? 'text-blue-700' : 'text-slate-600'}`}>
-                  {formatShortDate(ws)}
-                </p>
-                <div
-                  className={`h-1.5 rounded-full mx-auto transition-all ${barStyle}`}
-                  style={{
-                    backgroundColor: barColor,
-                    width: hasSchedule ? '100%' : '50%',
-                    borderColor: borderDashColor,
-                  }}
-                />
-                {resolved && resolved.name ? (
-                  <p className="text-[8px] text-slate-500 mt-1 truncate leading-tight">{resolved.name}</p>
-                ) : (
-                  <p className="text-[9px] text-slate-400 mt-1">
-                    {hasContent ? `${stationCount} stn${stationCount !== 1 ? 's' : ''}` : hasSchedule ? 'empty' : '\u00A0'}
+              let barColor: string;
+              let barStyle: string;
+              if (!hasSchedule) {
+                barColor = 'transparent';
+                barStyle = 'border border-dashed border-slate-300';
+              } else if (inheritsTemplate) {
+                barColor = 'transparent';
+                barStyle = 'border-2 border-dotted border-slate-400';
+              } else if (!hasContent) {
+                barColor = 'transparent';
+                barStyle = 'border-2 border-dashed';
+              } else {
+                barColor = getGroupColor(resolved!.id, groups);
+                barStyle = '';
+              }
+
+              const borderDashColor = hasSchedule && !hasContent && !inheritsTemplate
+                ? getGroupColor(resolved!.id, groups)
+                : undefined;
+
+              return (
+                <button
+                  key={formatDateISO(ws)}
+                  onClick={() => selectWeek(ws)}
+                  className={`rounded-lg p-1.5 text-center transition-all border ${
+                    isSelected
+                      ? 'border-slate-400 bg-white shadow-sm ring-1 ring-slate-300'
+                      : isCurrent
+                        ? 'border-blue-200 bg-blue-50/50 hover:bg-blue-50'
+                        : 'border-transparent hover:bg-white hover:border-slate-200'
+                  }`}
+                >
+                  <p className={`text-[10px] font-semibold mb-1 ${isSelected ? 'text-slate-900' : isCurrent ? 'text-blue-700' : 'text-slate-600'}`}>
+                    {formatShortDate(ws)}
                   </p>
-                )}
-              </button>
-            );
-          })}
+                  <div
+                    className={`h-1.5 rounded-full mx-auto transition-all ${barStyle}`}
+                    style={{
+                      backgroundColor: barColor,
+                      width: hasSchedule ? '100%' : '50%',
+                      borderColor: borderDashColor,
+                    }}
+                  />
+                  {resolved && resolved.name && !resolved.is_base ? (
+                    <p className="text-[8px] text-slate-500 mt-1 truncate leading-tight">{resolved.name}</p>
+                  ) : inheritsTemplate ? (
+                    <p className="text-[8px] text-slate-400 mt-1 flex items-center justify-center gap-0.5">
+                      <Link2 className="w-2 h-2" /> TPL
+                    </p>
+                  ) : (
+                    <p className="text-[9px] text-slate-400 mt-1">
+                      {hasContent ? `${stationCount} stn${stationCount !== 1 ? 's' : ''}` : hasSchedule ? 'empty' : '\u00A0'}
+                    </p>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
-      {/* ──── Active Schedule Info Bar ──── */}
+      {/* ──── Active View Info Bar ──── */}
       <div className="px-6 py-3 border-b border-slate-100">
-        {resolvedGroup ? (
+        {viewMode === 'template' ? (
+          /* Template info bar */
           <div className="space-y-2">
-            {/* Name row */}
             <div className="flex items-center gap-2">
-              <div className="w-2.5 h-2.5 rounded-full shrink-0"
-                style={{ backgroundColor: resolvedGroup.is_base ? '#64748b' : getGroupColor(resolvedGroup.id, groups) }} />
+              <div className="w-6 h-6 rounded-md bg-slate-600 flex items-center justify-center">
+                <LayoutTemplate className="w-3.5 h-3.5 text-white" />
+              </div>
               {editingName ? (
                 <div className="flex items-center gap-2 flex-1">
                   <input ref={nameRef} value={nameInput} onChange={e => setNameInput(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter') saveRename(); if (e.key === 'Escape') setEditingName(false); }}
-                    placeholder="Schedule name..."
+                    placeholder="Template name..."
                     className="text-sm font-semibold text-slate-900 bg-transparent border-b-2 border-[#00adf0] outline-none px-0 py-0.5 flex-1" />
                   <button onClick={saveRename} className="text-[#00adf0] hover:text-[#0099d6]"><Check className="w-4 h-4" /></button>
                   <button onClick={() => setEditingName(false)} className="text-slate-400 hover:text-slate-600"><X className="w-4 h-4" /></button>
                 </div>
               ) : (
                 <button onClick={startRename} className="flex items-center gap-1.5 group">
-                  <span className="text-sm font-semibold text-slate-900">{groupDisplayName(resolvedGroup)}</span>
+                  <span className="text-sm font-semibold text-slate-900">{groupDisplayName(baseGroup)}</span>
                   <Pencil className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
                 </button>
               )}
-              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 ml-auto shrink-0">
-                {resolvedGroup.is_base ? 'Every week' : resolvedGroup.recurrence_weeks ? `Every ${resolvedGroup.recurrence_weeks}w` : 'One-time'}
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 ml-auto shrink-0">
+                Default &middot; Every week
               </span>
             </div>
-
-            {/* Date range row */}
-            <div className="flex items-center gap-4 text-[11px]">
-              <div className="flex items-center gap-1.5">
-                <CalendarRange className="w-3 h-3 text-slate-400" />
-                {editingStartDate ? (
-                  <div className="flex items-center gap-1">
-                    <input type="date" value={startDateInput} onChange={e => setStartDateInput(e.target.value)}
-                      className="px-1.5 py-0.5 border border-slate-300 rounded text-[11px] focus:ring-1 focus:ring-blue-500 outline-none" />
-                    <button onClick={saveStartDate} className="text-[#00adf0]"><Check className="w-3 h-3" /></button>
-                    <button onClick={() => setEditingStartDate(false)} className="text-slate-400"><X className="w-3 h-3" /></button>
-                  </div>
-                ) : (
-                  <button onClick={() => { setStartDateInput(resolvedGroup.start_date); setEditingStartDate(true); }}
-                    className="text-slate-600 hover:text-[#00adf0] transition-colors font-medium">
-                    Starts {formatShortDate(parseDate(resolvedGroup.start_date))}
-                  </button>
-                )}
+            <p className="text-[11px] text-slate-500 pl-8">
+              This is the standard week. Any week without its own schedule uses these stations.
+            </p>
+            <div className="flex items-center gap-1.5 flex-wrap pl-8 pt-0.5">
+              {baseEntries.length > 0 && (
+                <button onClick={() => copyEntries(baseEntries, 'Week Template')}
+                  className="px-2.5 py-1.5 text-[11px] font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1">
+                  <Copy className="w-3 h-3" /> Copy template
+                </button>
+              )}
+              {copiedWeekData && (
+                <button onClick={() => { setPasteTarget('template'); setShowPasteConfirm(true); }}
+                  className="px-2.5 py-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors flex items-center gap-1">
+                  <ClipboardPaste className="w-3 h-3" /> Paste to template
+                </button>
+              )}
+            </div>
+          </div>
+        ) : activeGroup ? (
+          /* Week info bar */
+          <div className="space-y-2">
+            {/* Week navigator */}
+            <div className="flex items-center gap-3">
+              <button onClick={() => selectWeek(addWeeks(selectedWeek, -1))}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors">
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <div className="text-center flex-1">
+                <p className="text-sm font-bold text-slate-900">Week of {formatShortDate(selectedWeek)}</p>
+                <p className="text-[11px] text-slate-400">
+                  {formatShortDate(selectedWeek)} &ndash; {formatShortDate(weekEnd)}
+                  {isSameWeek(selectedWeek, todayMonday) && (
+                    <span className="ml-1.5 text-[10px] font-bold text-blue-600 uppercase">This week</span>
+                  )}
+                </p>
               </div>
+              <button onClick={() => selectWeek(addWeeks(selectedWeek, 1))}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors">
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
 
-              {!resolvedGroup.is_base && (
+            {/* Source info */}
+            <div className="flex items-center gap-2">
+              <div className="w-2.5 h-2.5 rounded-full shrink-0"
+                style={{ backgroundColor: activeGroup.is_base ? '#64748b' : getGroupColor(activeGroup.id, groups) }} />
+              {isInherited ? (
+                <div className="flex items-center gap-1.5">
+                  <Link2 className="w-3 h-3 text-slate-400" />
+                  <span className="text-xs text-slate-500">Using Week Template</span>
+                  <button onClick={selectTemplate} className="text-[11px] text-[#00adf0] hover:text-[#0099d6] font-medium ml-1">
+                    Edit template
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {editingName ? (
+                    <div className="flex items-center gap-2 flex-1">
+                      <input ref={nameRef} value={nameInput} onChange={e => setNameInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') saveRename(); if (e.key === 'Escape') setEditingName(false); }}
+                        placeholder="Schedule name..."
+                        className="text-sm font-semibold text-slate-900 bg-transparent border-b-2 border-[#00adf0] outline-none px-0 py-0.5 flex-1" />
+                      <button onClick={saveRename} className="text-[#00adf0] hover:text-[#0099d6]"><Check className="w-4 h-4" /></button>
+                      <button onClick={() => setEditingName(false)} className="text-slate-400 hover:text-slate-600"><X className="w-4 h-4" /></button>
+                    </div>
+                  ) : (
+                    <button onClick={startRename} className="flex items-center gap-1.5 group">
+                      <span className="text-sm font-semibold text-slate-900">{groupDisplayName(activeGroup)}</span>
+                      <Pencil className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
+                    </button>
+                  )}
+                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 ml-auto shrink-0">
+                    {activeGroup.recurrence_weeks ? `Every ${activeGroup.recurrence_weeks}w` : 'One-time'}
+                  </span>
+                </>
+              )}
+            </div>
+
+            {/* Date range for non-base */}
+            {!activeGroup.is_base && (
+              <div className="flex items-center gap-4 text-[11px] pl-4">
+                <div className="flex items-center gap-1.5">
+                  <CalendarRange className="w-3 h-3 text-slate-400" />
+                  {editingStartDate ? (
+                    <div className="flex items-center gap-1">
+                      <input type="date" value={startDateInput} onChange={e => setStartDateInput(e.target.value)}
+                        className="px-1.5 py-0.5 border border-slate-300 rounded text-[11px] focus:ring-1 focus:ring-blue-500 outline-none" />
+                      <button onClick={saveStartDate} className="text-[#00adf0]"><Check className="w-3 h-3" /></button>
+                      <button onClick={() => setEditingStartDate(false)} className="text-slate-400"><X className="w-3 h-3" /></button>
+                    </div>
+                  ) : (
+                    <button onClick={() => { setStartDateInput(activeGroup.start_date); setEditingStartDate(true); }}
+                      className="text-slate-600 hover:text-[#00adf0] transition-colors font-medium">
+                      Starts {formatShortDate(parseDate(activeGroup.start_date))}
+                    </button>
+                  )}
+                </div>
                 <div className="flex items-center gap-1.5">
                   <span className="text-slate-300">&rarr;</span>
                   {editingEndDate ? (
@@ -727,45 +862,52 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
                       <button onClick={() => setEditingEndDate(false)} className="text-slate-400"><X className="w-3 h-3" /></button>
                     </div>
                   ) : (
-                    <button onClick={() => { setEndDateInput(resolvedGroup.end_date || ''); setEditingEndDate(true); }}
-                      className={`transition-colors font-medium ${
-                        resolvedGroup.end_date ? 'text-slate-600 hover:text-[#00adf0]' : 'text-slate-400 hover:text-[#00adf0]'
-                      }`}>
-                      {resolvedGroup.end_date ? `Ends ${formatShortDate(parseDate(resolvedGroup.end_date))}` : 'No end date'}
+                    <button onClick={() => { setEndDateInput(activeGroup.end_date || ''); setEditingEndDate(true); }}
+                      className={`transition-colors font-medium ${activeGroup.end_date ? 'text-slate-600 hover:text-[#00adf0]' : 'text-slate-400 hover:text-[#00adf0]'}`}>
+                      {activeGroup.end_date ? `Ends ${formatShortDate(parseDate(activeGroup.end_date))}` : 'No end date'}
                     </button>
                   )}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
-            {/* Actions row */}
+            {/* Actions */}
             <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-              {/* Customize this week */}
-              {resolvedGroup && (isBaseWeek || (!isOwnOverride && resolvedGroup.recurrence_weeks)) && (
-                <button onClick={() => openCreatePrompt('customize')} disabled={saving}
+              {isInherited && (
+                <button onClick={openCreatePrompt} disabled={saving}
                   className="px-2.5 py-1.5 text-[11px] font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1">
-                  <CalendarDays className="w-3 h-3" /> {isBaseWeek ? 'Customize this week' : 'Override this week'}
+                  <CalendarDays className="w-3 h-3" /> Customize this week
                 </button>
               )}
 
-              {/* Copy week */}
-              {weekEntries.length > 0 && (
-                <button onClick={copyWeek}
+              {!isInherited && !activeGroup.is_base && (!isOwnOverride && activeGroup.recurrence_weeks) && (
+                <button onClick={openCreatePrompt} disabled={saving}
+                  className="px-2.5 py-1.5 text-[11px] font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1">
+                  <CalendarDays className="w-3 h-3" /> Override this week
+                </button>
+              )}
+
+              {activeEntries.length > 0 && !isReadOnly && (
+                <button onClick={() => copyEntries(activeEntries, `${groupDisplayName(activeGroup)} (${formatShortDate(selectedWeek)})`)}
                   className="px-2.5 py-1.5 text-[11px] font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1">
                   <Copy className="w-3 h-3" /> Copy week
                 </button>
               )}
 
-              {/* Paste week */}
               {copiedWeekData && (
-                <button onClick={() => setShowPasteConfirm(true)}
-                  className="px-2.5 py-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors flex items-center gap-1">
-                  <ClipboardPaste className="w-3 h-3" /> Paste here
-                </button>
+                <>
+                  <button onClick={() => { setPasteTarget('week'); setShowPasteConfirm(true); }}
+                    className="px-2.5 py-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors flex items-center gap-1">
+                    <ClipboardPaste className="w-3 h-3" /> Paste here
+                  </button>
+                  <button onClick={() => { setPasteTarget('template'); setShowPasteConfirm(true); }}
+                    className="px-2.5 py-1.5 text-[11px] font-medium text-slate-500 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors flex items-center gap-1">
+                    <LayoutTemplate className="w-3 h-3" /> Save to template
+                  </button>
+                </>
               )}
 
-              {/* Repeat (non-base, non-recurring) */}
-              {!resolvedGroup.is_base && !resolvedGroup.recurrence_weeks && (
+              {!isInherited && !activeGroup.is_base && !activeGroup.recurrence_weeks && (
                 <div className="relative">
                   <button onClick={() => setShowRepeatPopover(!showRepeatPopover)}
                     className="px-2.5 py-1.5 text-[11px] font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1">
@@ -797,33 +939,44 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
                 </div>
               )}
 
-              {/* Recurrence badge */}
-              {resolvedGroup.recurrence_weeks && (
+              {activeGroup.recurrence_weeks && (
                 <div className="flex items-center gap-1 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1.5">
                   <Repeat className="w-3 h-3 text-emerald-600" />
-                  <span className="text-[11px] font-medium text-emerald-700">Every {resolvedGroup.recurrence_weeks}w</span>
+                  <span className="text-[11px] font-medium text-emerald-700">Every {activeGroup.recurrence_weeks}w</span>
                   <button onClick={stopRecurrence} className="ml-1 text-emerald-400 hover:text-red-500 transition-colors" title="Stop repeating">
                     <X className="w-3 h-3" />
                   </button>
                 </div>
               )}
 
-              {/* Revert */}
-              {!resolvedGroup.is_base && isOwnOverride && (
+              {!activeGroup.is_base && isOwnOverride && (
                 <button onClick={() => setConfirmRevert(true)}
                   className="px-2.5 py-1.5 text-[11px] font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors flex items-center gap-1">
-                  <RotateCcw className="w-3 h-3" /> Revert
+                  <RotateCcw className="w-3 h-3" /> Revert to template
                 </button>
               )}
             </div>
           </div>
         ) : (
-          <div className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 rounded-full bg-slate-300" />
-            <span className="text-sm text-slate-500">No schedule for this week</span>
+          /* No schedule */
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-1">
+              <button onClick={() => selectWeek(addWeeks(selectedWeek, -1))}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors">
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <div className="text-center flex-1">
+                <p className="text-sm font-bold text-slate-900">Week of {formatShortDate(selectedWeek)}</p>
+                <p className="text-[11px] text-slate-400">No schedule for this week</p>
+              </div>
+              <button onClick={() => selectWeek(addWeeks(selectedWeek, 1))}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors">
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
             {copiedWeekData && (
-              <button onClick={() => setShowPasteConfirm(true)}
-                className="ml-auto px-2.5 py-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors flex items-center gap-1">
+              <button onClick={() => { setPasteTarget('week'); setShowPasteConfirm(true); }}
+                className="px-2.5 py-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors flex items-center gap-1">
                 <ClipboardPaste className="w-3 h-3" /> Paste here
               </button>
             )}
@@ -831,34 +984,68 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
         )}
       </div>
 
+      {/* ──── Inherited Banner ──── */}
+      {isReadOnly && viewMode === 'week' && (
+        <div className="px-6 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-2">
+          <Link2 className="w-3.5 h-3.5 text-slate-400" />
+          <span className="text-[11px] text-slate-500">
+            This week inherits from the template. Customize it to make changes just for this week, or
+          </span>
+          <button onClick={selectTemplate} className="text-[11px] font-medium text-[#00adf0] hover:text-[#0099d6]">
+            edit the template
+          </button>
+          <span className="text-[11px] text-slate-500">to change all weeks.</span>
+        </div>
+      )}
+
       {/* ──── Station / Day Grid ──── */}
       <div className="p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-bold text-slate-800">Stations &amp; Days</h3>
-          <button onClick={handleAddStation}
-            className="px-3 py-1.5 text-xs font-medium text-white bg-[#00adf0] hover:bg-[#0099d6] rounded-lg transition-colors flex items-center gap-1.5">
-            <Plus className="w-3.5 h-3.5" /> Add Station
-          </button>
+          <h3 className="text-sm font-bold text-slate-800">
+            {viewMode === 'template' ? 'Template Stations & Days' : 'Stations & Days'}
+          </h3>
+          {!isReadOnly && (
+            <button onClick={handleAddStation}
+              className="px-3 py-1.5 text-xs font-medium text-white bg-[#00adf0] hover:bg-[#0099d6] rounded-lg transition-colors flex items-center gap-1.5">
+              <Plus className="w-3.5 h-3.5" /> Add Station
+            </button>
+          )}
         </div>
 
-        {weekEntries.length === 0 ? (
+        {activeEntries.length === 0 ? (
           <div className="text-center py-10">
             <CalendarDays className="w-10 h-10 mx-auto mb-3 text-slate-300" />
             <p className="text-sm font-medium text-slate-600 mb-1">
-              {groups.length === 0 ? 'No schedule set up yet' : 'No stations this week'}
+              {viewMode === 'template' ? 'No stations in template yet' : 'No stations this week'}
             </p>
             <p className="text-xs text-slate-400 mb-5 max-w-xs mx-auto">
-              {groups.length === 0
-                ? 'Add a station to start building your schedule.'
-                : 'This week has no station assignments. Add a station or customize this week.'}
+              {viewMode === 'template'
+                ? 'Add stations to your template. Every week without its own schedule will use these.'
+                : isReadOnly
+                  ? 'The template is empty. Add stations to the template or customize this week.'
+                  : 'Add a station to get started.'}
             </p>
             <div className="flex items-center justify-center gap-2">
-              <button onClick={handleAddStation}
-                className="px-4 py-2 text-sm font-medium text-white bg-[#00adf0] hover:bg-[#0099d6] rounded-lg transition-colors inline-flex items-center gap-2">
-                <Plus className="w-4 h-4" /> Add Station
-              </button>
-              {copiedWeekData && (
-                <button onClick={() => setShowPasteConfirm(true)}
+              {!isReadOnly && (
+                <button onClick={handleAddStation}
+                  className="px-4 py-2 text-sm font-medium text-white bg-[#00adf0] hover:bg-[#0099d6] rounded-lg transition-colors inline-flex items-center gap-2">
+                  <Plus className="w-4 h-4" /> Add Station
+                </button>
+              )}
+              {isReadOnly && (
+                <>
+                  <button onClick={selectTemplate}
+                    className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors inline-flex items-center gap-2">
+                    <LayoutTemplate className="w-4 h-4" /> Edit Template
+                  </button>
+                  <button onClick={openCreatePrompt}
+                    className="px-4 py-2 text-sm font-medium text-white bg-[#00adf0] hover:bg-[#0099d6] rounded-lg transition-colors inline-flex items-center gap-2">
+                    <CalendarDays className="w-4 h-4" /> Customize Week
+                  </button>
+                </>
+              )}
+              {copiedWeekData && !isReadOnly && (
+                <button onClick={() => { setPasteTarget(viewMode === 'template' ? 'template' : 'week'); setShowPasteConfirm(true); }}
                   className="px-4 py-2 text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors inline-flex items-center gap-2">
                   <ClipboardPaste className="w-4 h-4" /> Paste
                 </button>
@@ -866,7 +1053,7 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
             </div>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className={`overflow-x-auto ${isReadOnly ? 'opacity-75' : ''}`}>
             <table className="w-full">
               <thead>
                 <tr>
@@ -876,11 +1063,11 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
                       <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{day}</span>
                     </th>
                   ))}
-                  <th className="w-10"></th>
+                  {!isReadOnly && <th className="w-10"></th>}
                 </tr>
               </thead>
               <tbody>
-                {weekEntries.map(entry => {
+                {activeEntries.map(entry => {
                   const station = allStations.find(s => s.id === entry.station_id);
                   if (!station) return null;
                   const dpDef = entry.daypart_id ? daypartDefs.find(d => d.id === entry.daypart_id) : null;
@@ -911,25 +1098,35 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
                         return (
                           <td key={colIdx} className="py-3">
                             <div className="flex justify-center">
-                              <button onClick={() => toggleDay(entry.id, dayIndex)} disabled={saving}
-                                className={`w-9 h-9 rounded-lg transition-all flex items-center justify-center ${
-                                  isActive
-                                    ? 'text-white shadow-sm hover:opacity-80'
-                                    : 'bg-slate-100 text-slate-300 hover:bg-slate-200 hover:text-slate-400'
-                                }`}
-                                style={isActive ? { backgroundColor: brandColor } : undefined}>
-                                {isActive ? <Check className="w-4 h-4" /> : <span className="text-[10px]">{DAY_LABELS[colIdx]}</span>}
-                              </button>
+                              {isReadOnly ? (
+                                <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+                                  isActive ? 'text-white' : 'bg-slate-100 text-slate-300'
+                                }`} style={isActive ? { backgroundColor: brandColor, opacity: 0.6 } : undefined}>
+                                  {isActive ? <Check className="w-4 h-4" /> : <span className="text-[10px]">{DAY_LABELS[colIdx]}</span>}
+                                </div>
+                              ) : (
+                                <button onClick={() => toggleDay(entry.id, dayIndex)} disabled={saving}
+                                  className={`w-9 h-9 rounded-lg transition-all flex items-center justify-center ${
+                                    isActive
+                                      ? 'text-white shadow-sm hover:opacity-80'
+                                      : 'bg-slate-100 text-slate-300 hover:bg-slate-200 hover:text-slate-400'
+                                  }`}
+                                  style={isActive ? { backgroundColor: brandColor } : undefined}>
+                                  {isActive ? <Check className="w-4 h-4" /> : <span className="text-[10px]">{DAY_LABELS[colIdx]}</span>}
+                                </button>
+                              )}
                             </div>
                           </td>
                         );
                       })}
-                      <td className="py-3">
-                        <button onClick={() => removeEntry(entry.id)}
-                          className="p-1.5 text-slate-300 hover:text-red-500 rounded-lg opacity-0 group-hover/row:opacity-100 transition-all">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </td>
+                      {!isReadOnly && (
+                        <td className="py-3">
+                          <button onClick={() => removeEntry(entry.id)}
+                            className="p-1.5 text-slate-300 hover:text-red-500 rounded-lg opacity-0 group-hover/row:opacity-100 transition-all">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -940,21 +1137,21 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
       </div>
 
       {/* ──── All Schedules List ──── */}
-      {groups.length > 1 && (
+      {groups.filter(g => !g.is_base).length > 0 && (
         <div className="px-6 pb-5 pt-0">
           <details className="group">
             <summary className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide cursor-pointer select-none flex items-center gap-1.5 hover:text-slate-700 transition-colors">
               <ChevronRight className="w-3 h-3 transition-transform group-open:rotate-90" />
-              All Schedules ({groups.length})
+              Week Schedules ({groups.filter(g => !g.is_base).length})
             </summary>
             <div className="mt-2 space-y-1">
-              {groups.map(g => {
-                const isActive = resolvedGroup?.id === g.id;
-                const color = g.is_base ? '#64748b' : getGroupColor(g.id, groups);
+              {groups.filter(g => !g.is_base).map(g => {
+                const isActive = viewMode === 'week' && resolvedGroup?.id === g.id;
+                const color = getGroupColor(g.id, groups);
                 const gEntries = entries.filter(e => e.group_id === g.id);
                 return (
                   <button key={g.id}
-                    onClick={() => { setSelectedWeek(getMondayOfWeek(parseDate(g.start_date))); }}
+                    onClick={() => selectWeek(getMondayOfWeek(parseDate(g.start_date)))}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all ${
                       isActive ? 'bg-slate-100 ring-1 ring-slate-300' : 'hover:bg-slate-50'
                     }`}>
@@ -965,7 +1162,6 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
                         {formatShortDate(parseDate(g.start_date))}
                         {g.end_date ? ` \u2013 ${formatShortDate(parseDate(g.end_date))}` : ''}
                         {g.recurrence_weeks ? ` \u00B7 Every ${g.recurrence_weeks}w` : ''}
-                        {g.is_base ? ' \u00B7 Default' : ''}
                         {' \u00B7 '}{gEntries.length} station{gEntries.length !== 1 ? 's' : ''}
                       </p>
                     </div>
@@ -980,7 +1176,7 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
 
       {/* ──── Add Station Modal ──── */}
       {showAddStation && (
-        <AddStationModal allStations={allStations} existingEntries={weekEntries}
+        <AddStationModal allStations={allStations} existingEntries={activeEntries}
           daypartDefs={daypartDefs} saving={saving} onAdd={addStationToGroup}
           onClose={() => setShowAddStation(false)} />
       )}
@@ -989,13 +1185,9 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
       {showCreatePrompt && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-            <h3 className="text-base font-bold text-slate-900 mb-1">
-              {pendingCreateAction === 'first-station' ? 'Create Schedule' : 'Customize This Week'}
-            </h3>
+            <h3 className="text-base font-bold text-slate-900 mb-1">Customize This Week</h3>
             <p className="text-xs text-slate-500 mb-4">
-              {pendingCreateAction === 'first-station'
-                ? 'Set up your first schedule. You can add stations after this.'
-                : 'Create a separate schedule for this week.'}
+              Create a separate schedule for this week. Stations from the current source will be copied so you can modify them.
             </p>
             <div className="space-y-3">
               <div>
@@ -1013,7 +1205,6 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-600 mb-1">End Date</label>
                   <input type="date" value={createEndDate} onChange={e => setCreateEndDate(e.target.value)}
-                    placeholder="Optional"
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
                 </div>
               </div>
@@ -1033,18 +1224,24 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
       {showPasteConfirm && copiedWeekData && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-            <h3 className="text-base font-bold text-slate-900 mb-2">Paste schedule here?</h3>
+            <h3 className="text-base font-bold text-slate-900 mb-2">
+              {pasteTarget === 'template' ? 'Update template?' : 'Paste schedule here?'}
+            </h3>
             <p className="text-sm text-slate-500 mb-1">
-              Copy {copiedWeekData.entries.length} station{copiedWeekData.entries.length !== 1 ? 's' : ''} from <strong>{copiedWeekData.sourceName}</strong> to the week of <strong>{formatShortDate(selectedWeek)}</strong>.
+              {pasteTarget === 'template' ? (
+                <>Paste {copiedWeekData.entries.length} station{copiedWeekData.entries.length !== 1 ? 's' : ''} from <strong>{copiedWeekData.sourceName}</strong> into the Week Template. This replaces the current template stations.</>
+              ) : (
+                <>Paste {copiedWeekData.entries.length} station{copiedWeekData.entries.length !== 1 ? 's' : ''} from <strong>{copiedWeekData.sourceName}</strong> to the week of <strong>{formatShortDate(selectedWeek)}</strong>.</>
+              )}
             </p>
-            {resolvedGroup && !resolvedGroup.is_base && isOwnOverride && (
+            {pasteTarget === 'week' && resolvedGroup && !resolvedGroup.is_base && isOwnOverride && (
               <p className="text-xs text-amber-600 mt-2">This will replace the existing custom schedule for this week.</p>
             )}
             <div className="flex justify-end gap-3 mt-5">
               <button onClick={() => setShowPasteConfirm(false)} className="px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 rounded-lg">Cancel</button>
-              <button onClick={pasteWeek}
+              <button onClick={pasteTarget === 'template' ? pasteToTemplate : pasteToWeek}
                 className="px-4 py-2 text-sm font-medium text-white bg-[#00adf0] rounded-lg hover:bg-[#0099d6] transition-colors">
-                Paste
+                {pasteTarget === 'template' ? 'Update Template' : 'Paste'}
               </button>
             </div>
           </div>
@@ -1055,9 +1252,9 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
       {confirmRevert && resolvedGroup && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-            <h3 className="text-base font-bold text-slate-900 mb-2">Revert to default?</h3>
+            <h3 className="text-base font-bold text-slate-900 mb-2">Revert to template?</h3>
             <p className="text-sm text-slate-500 mb-5">
-              This will remove the custom schedule for this week and go back to the default every-week schedule.
+              This will remove the custom schedule for this week. The week will go back to using the template.
             </p>
             <div className="flex justify-end gap-3">
               <button onClick={() => setConfirmRevert(false)} className="px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 rounded-lg">Cancel</button>
@@ -1109,7 +1306,6 @@ function AddStationModal({ allStations, existingEntries, daypartDefs, saving, on
           <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg"><X className="w-5 h-5 text-slate-500" /></button>
         </div>
         <div className="p-5 space-y-4 flex-1 overflow-y-auto">
-          {/* Daypart selection first */}
           {daypartDefs.length > 0 && (
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-2">1. Which dayparts?</label>
@@ -1131,8 +1327,6 @@ function AddStationModal({ allStations, existingEntries, daypartDefs, saving, on
               </div>
             </div>
           )}
-
-          {/* Station search */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-2">
               {daypartDefs.length > 0 ? '2. Pick a station' : 'Pick a station'}
@@ -1142,7 +1336,6 @@ function AddStationModal({ allStations, existingEntries, daypartDefs, saving, on
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
               autoFocus />
           </div>
-
           <div className="space-y-1 max-h-48 overflow-y-auto">
             {filtered.length === 0 ? (
               <p className="text-sm text-slate-400 text-center py-4">No stations found</p>
