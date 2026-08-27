@@ -215,9 +215,9 @@ export default function BrandWorkspace({
         </div>
       </div>
 
-      {/* Brand Schedule Gantt Overview */}
+      {/* Station Schedule Overview */}
       {!loading && brands.length > 0 && (
-        <BrandScheduleGantt brands={brands} onSelectBrand={setSelectedBrand} />
+        <StationScheduleOverview brands={brands} onSelectBrand={setSelectedBrand} />
       )}
 
       <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
@@ -808,30 +808,61 @@ function LinkNationalBrandModal({ existingBrandIds, onClose, onLink }: { existin
   );
 }
 
-/* ─── Brand Schedule Gantt Overview ─── */
+/* ─── Station Schedule Overview ─── */
 
-function BrandScheduleGantt({ brands, onSelectBrand }: { brands: Brand[]; onSelectBrand: (b: Brand) => void }) {
-  const [scheduleData, setScheduleData] = useState<Record<number, Array<{ start_date: string; end_date: string | null; recurrence_weeks: number | null; is_base: boolean; name: string | null }>>>({});
-  const [expanded, setExpanded] = useState(true);
+interface ScheduleCell {
+  brandId: number;
+  brandName: string;
+  brandColor: string;
+  scheduleName: string;
+  daypartLabel: string | null;
+}
+
+interface StationRow {
+  stationId: number;
+  stationName: string;
+  daypartId: string | null;
+  daypartLabel: string | null;
+  daypartColor: string | null;
+  cells: (ScheduleCell | null)[];
+}
+
+function StationScheduleOverview({ brands, onSelectBrand }: { brands: Brand[]; onSelectBrand: (b: Brand) => void }) {
+  const [stations, setStations] = useState<Array<{ id: number; name: string; store_id: number | null }>>([]);
+  const [groups, setGroups] = useState<Array<{ id: string; brand_id: number; start_date: string; end_date: string | null; recurrence_weeks: number | null; is_base: boolean; name: string | null }>>([]);
+  const [entries, setEntries] = useState<Array<{ id: string; group_id: string; station_id: number; days_of_week: number[]; daypart_id: string | null }>>([]);
+  const [daypartDefs, setDaypartDefs] = useState<Array<{ id: string; daypart_name: string; display_label: string; color: string }>>([]);
+  const [expanded, setExpanded] = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
+  const [hoveredCell, setHoveredCell] = useState<{ row: number; col: number } | null>(null);
 
-  const WEEKS_VISIBLE = 12;
+  const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const DAY_INDICES = [1, 2, 3, 4, 5, 6, 0];
 
-  useEffect(() => {
-    loadScheduleData();
-  }, [brands]);
+  useEffect(() => { loadData(); }, [brands]);
 
-  const loadScheduleData = async () => {
+  const loadData = async () => {
     const brandIds = brands.map(b => b.id);
     if (brandIds.length === 0) return;
-    const { data } = await supabase.from('brand_schedule_groups').select('brand_id, start_date, end_date, recurrence_weeks, is_base, name').in('brand_id', brandIds);
-    if (data) {
-      const map: Record<number, typeof data> = {};
-      data.forEach(g => {
-        if (!map[g.brand_id]) map[g.brand_id] = [];
-        map[g.brand_id].push(g);
-      });
-      setScheduleData(map);
+
+    const [stationsRes, groupsRes, daypartsRes] = await Promise.all([
+      supabase.from('stations').select('id, name, store_id').eq('status', 'active'),
+      supabase.from('brand_schedule_groups').select('*').in('brand_id', brandIds),
+      supabase.from('daypart_definitions').select('*'),
+    ]);
+
+    const loadedStations = (stationsRes.data || []) as typeof stations;
+    const loadedGroups = (groupsRes.data || []) as typeof groups;
+    setStations(loadedStations);
+    setGroups(loadedGroups);
+    setDaypartDefs((daypartsRes.data || []) as typeof daypartDefs);
+
+    if (loadedGroups.length > 0) {
+      const groupIds = loadedGroups.map(g => g.id);
+      const { data: entriesData } = await supabase.from('brand_schedule_group_entries').select('*').in('group_id', groupIds);
+      setEntries((entriesData || []) as typeof entries);
+    } else {
+      setEntries([]);
     }
   };
 
@@ -845,152 +876,300 @@ function BrandScheduleGantt({ brands, onSelectBrand }: { brands: Brand[]; onSele
   };
 
   const baseMonday = getMonday(new Date());
-  const startMonday = new Date(baseMonday);
-  startMonday.setDate(startMonday.getDate() + weekOffset * 7);
+  const currentMonday = new Date(baseMonday);
+  currentMonday.setDate(currentMonday.getDate() + weekOffset * 7);
 
-  const weeks: Date[] = [];
-  for (let i = 0; i < WEEKS_VISIBLE; i++) {
-    const w = new Date(startMonday);
-    w.setDate(w.getDate() + i * 7);
-    weeks.push(w);
-  }
+  const resolveActiveGroup = (brandId: number, weekStart: Date) => {
+    const brandGroups = groups.filter(g => g.brand_id === brandId);
+    if (brandGroups.length === 0) return null;
 
-  const formatWeekLabel = (d: Date) => {
-    return `${d.getMonth() + 1}/${d.getDate()}`;
-  };
-
-  const isWeekCovered = (brandId: number, weekStart: Date): 'override' | 'base' | null => {
-    const groups = scheduleData[brandId];
-    if (!groups) return null;
     const weekMs = weekStart.getTime();
     const weekEnd = weekMs + 6 * 86400000;
 
-    for (const g of groups) {
+    let bestOverride: typeof groups[0] | null = null;
+    let bestStart = 0;
+
+    for (const g of brandGroups) {
       if (g.is_base) continue;
       const gStart = new Date(g.start_date + 'T00:00:00').getTime();
       const gEnd = g.end_date ? new Date(g.end_date + 'T00:00:00').getTime() : null;
 
+      let matches = false;
       if (g.recurrence_weeks && g.recurrence_weeks > 0) {
         const weeksBetween = Math.round((weekMs - gStart) / (7 * 86400000));
         if (weeksBetween >= 0 && weeksBetween % g.recurrence_weeks === 0) {
-          if (!gEnd || weekMs <= gEnd) return 'override';
+          if (!gEnd || weekMs <= gEnd) matches = true;
         }
       } else {
-        if (gStart <= weekEnd && (!gEnd || gEnd >= weekMs)) return 'override';
+        if (gStart <= weekEnd && (!gEnd || gEnd >= weekMs)) matches = true;
+      }
+
+      if (matches && gStart >= bestStart) {
+        bestOverride = g;
+        bestStart = gStart;
       }
     }
 
-    const hasBase = groups.some(g => g.is_base);
-    if (hasBase) return 'base';
-    return null;
+    if (bestOverride) return bestOverride;
+    return brandGroups.find(g => g.is_base) || null;
   };
 
-  const todayMonday = getMonday(new Date());
+  const buildRows = (): StationRow[] => {
+    const rows: StationRow[] = [];
+    const brandMap = new Map(brands.map(b => [b.id, b]));
 
-  if (brands.length === 0) return null;
+    for (const station of stations) {
+      const stationEntries = entries.filter(e => e.station_id === station.id);
+      if (stationEntries.length === 0) {
+        rows.push({
+          stationId: station.id,
+          stationName: station.name,
+          daypartId: null,
+          daypartLabel: null,
+          daypartColor: null,
+          cells: DAY_INDICES.map(() => null),
+        });
+        continue;
+      }
+
+      const daypartIds = [...new Set(stationEntries.map(e => e.daypart_id))];
+      const hasMixedDayparts = daypartIds.length > 1 || (daypartIds.length === 1 && daypartIds[0] !== null);
+
+      if (!hasMixedDayparts) {
+        const cells = DAY_INDICES.map(dayIdx => {
+          for (const brand of brands) {
+            const activeGroup = resolveActiveGroup(brand.id, currentMonday);
+            if (!activeGroup) continue;
+            const matching = stationEntries.find(e => {
+              if (e.group_id !== activeGroup.id) return false;
+              return e.days_of_week.includes(dayIdx);
+            });
+            if (matching) {
+              return {
+                brandId: brand.id,
+                brandName: brand.name,
+                brandColor: brand.brand_primary_color || '#64748b',
+                scheduleName: activeGroup.name || 'Default',
+                daypartLabel: null,
+              };
+            }
+          }
+          return null;
+        });
+        rows.push({
+          stationId: station.id,
+          stationName: station.name,
+          daypartId: null,
+          daypartLabel: null,
+          daypartColor: null,
+          cells,
+        });
+      } else {
+        for (const dpId of daypartIds) {
+          const dpDef = dpId ? daypartDefs.find(d => d.id === dpId) : null;
+          const dpEntries = stationEntries.filter(e => e.daypart_id === dpId);
+          const cells = DAY_INDICES.map(dayIdx => {
+            for (const brand of brands) {
+              const activeGroup = resolveActiveGroup(brand.id, currentMonday);
+              if (!activeGroup) continue;
+              const matching = dpEntries.find(e => {
+                if (e.group_id !== activeGroup.id) return false;
+                return e.days_of_week.includes(dayIdx);
+              });
+              if (matching) {
+                return {
+                  brandId: brand.id,
+                  brandName: brand.name,
+                  brandColor: brand.brand_primary_color || '#64748b',
+                  scheduleName: activeGroup.name || 'Default',
+                  daypartLabel: dpDef?.display_label || null,
+                };
+              }
+            }
+            return null;
+          });
+          rows.push({
+            stationId: station.id,
+            stationName: dpId === daypartIds[0] ? station.name : '',
+            daypartId: dpId,
+            daypartLabel: dpDef?.display_label || 'All Day',
+            daypartColor: dpDef?.color || null,
+            cells,
+          });
+        }
+      }
+    }
+    return rows;
+  };
+
+  const rows = buildRows();
+  const gapCount = rows.reduce((count, row) => count + row.cells.filter(c => c === null).length, 0);
+  const stationsWithGaps = new Set(rows.filter(r => r.cells.some(c => c === null)).map(r => r.stationId)).size;
+
+  const todayDow = new Date().getDay();
+  const todayColIdx = todayDow === 0 ? 6 : todayDow - 1;
+  const isCurrentWeek = weekOffset === 0;
+
+  const formatWeekRange = () => {
+    const end = new Date(currentMonday);
+    end.setDate(end.getDate() + 6);
+    const fmt = (d: Date) => `${d.toLocaleString('default', { month: 'short' })} ${d.getDate()}`;
+    return `${fmt(currentMonday)} - ${fmt(end)}`;
+  };
+
+  if (stations.length === 0 && groups.length === 0) return null;
 
   return (
     <div className="mb-4 bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+      {/* Header - always visible */}
       <button onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center justify-between px-5 py-3 text-left hover:bg-slate-50 transition-colors">
         <div className="flex items-center gap-2">
           <Calendar className="w-4 h-4 text-[#00adf0]" />
-          <span className="text-sm font-semibold text-slate-800">Schedule Overview</span>
-          <span className="text-xs text-slate-400">({brands.filter(b => !b.is_wrapper).length} brands)</span>
+          <span className="text-sm font-semibold text-slate-800">Station Schedule</span>
+          <span className="text-xs text-slate-400">({stations.length} stations)</span>
         </div>
-        <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+        <div className="flex items-center gap-3">
+          {stationsWithGaps > 0 && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200">
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+              {stationsWithGaps} station{stationsWithGaps !== 1 ? 's' : ''} with gaps
+            </span>
+          )}
+          <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+        </div>
       </button>
 
       {expanded && (
-        <div className="px-5 pb-4">
+        <div className="px-5 pb-4 border-t border-slate-100">
           {/* Week navigation */}
-          <div className="flex items-center justify-between mb-3">
-            <button onClick={() => setWeekOffset(w => w - 4)}
-              className="p-1 rounded hover:bg-slate-100 text-slate-400 transition-colors">
+          <div className="flex items-center justify-between py-3">
+            <button onClick={() => setWeekOffset(w => w - 1)}
+              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors">
               <ChevronRight className="w-4 h-4 rotate-180" />
             </button>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
-                {formatWeekLabel(weeks[0])} &ndash; {formatWeekLabel(weeks[WEEKS_VISIBLE - 1])}
-              </span>
+              <span className="text-xs font-semibold text-slate-700">{formatWeekRange()}</span>
               {weekOffset !== 0 && (
                 <button onClick={() => setWeekOffset(0)}
-                  className="text-[10px] text-[#00adf0] hover:text-[#0099d6] font-medium">
-                  Today
+                  className="text-[10px] text-[#00adf0] hover:text-[#0099d6] font-medium px-1.5 py-0.5 rounded bg-blue-50">
+                  This Week
                 </button>
               )}
             </div>
-            <button onClick={() => setWeekOffset(w => w + 4)}
-              className="p-1 rounded hover:bg-slate-100 text-slate-400 transition-colors">
+            <button onClick={() => setWeekOffset(w => w + 1)}
+              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors">
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
-          {/* Gantt grid */}
+          {/* Grid */}
           <div className="overflow-x-auto">
-            <div className="min-w-[600px]">
-              {/* Week headers */}
-              <div className="flex border-b border-slate-100 pb-1 mb-1">
-                <div className="w-[140px] shrink-0" />
-                <div className="flex-1 grid" style={{ gridTemplateColumns: `repeat(${WEEKS_VISIBLE}, 1fr)` }}>
-                  {weeks.map((w, i) => {
-                    const isCurrent = w.getTime() === todayMonday.getTime();
-                    return (
-                      <div key={i} className={`text-center text-[9px] font-medium px-0.5 ${isCurrent ? 'text-blue-600 font-bold' : 'text-slate-400'}`}>
-                        {formatWeekLabel(w)}
-                        {isCurrent && <div className="w-1 h-1 rounded-full bg-blue-500 mx-auto mt-0.5" />}
-                      </div>
-                    );
-                  })}
-                </div>
+            <div className="min-w-[550px]">
+              {/* Day headers */}
+              <div className="grid grid-cols-[160px_repeat(7,1fr)] gap-px mb-1">
+                <div />
+                {DAY_LABELS.map((label, i) => (
+                  <div key={i} className={`text-center text-[10px] font-semibold py-1 rounded-t ${
+                    isCurrentWeek && i === todayColIdx
+                      ? 'text-blue-700 bg-blue-50'
+                      : 'text-slate-500'
+                  }`}>
+                    {label}
+                    {isCurrentWeek && i === todayColIdx && (
+                      <div className="w-1 h-1 rounded-full bg-blue-500 mx-auto mt-0.5" />
+                    )}
+                  </div>
+                ))}
               </div>
 
-              {/* Brand rows */}
-              {brands.filter(b => !b.is_wrapper).map(brand => {
-                const color = brand.brand_primary_color || '#64748b';
-                return (
-                  <div key={brand.id} className="flex items-center group hover:bg-slate-50/50 rounded transition-colors cursor-pointer"
-                    onClick={() => onSelectBrand(brand)}>
-                    <div className="w-[140px] shrink-0 flex items-center gap-2 py-1.5 pr-3">
-                      <div className="w-5 h-5 rounded flex items-center justify-center text-white text-[9px] font-bold shrink-0" style={{ backgroundColor: color }}>
-                        {brand.name.charAt(0)}
-                      </div>
-                      <span className="text-xs font-medium text-slate-700 truncate group-hover:text-[#00adf0] transition-colors">{brand.name}</span>
+              {/* Station rows */}
+              {rows.length === 0 ? (
+                <div className="text-center py-6 text-sm text-slate-400">No stations configured</div>
+              ) : (
+                rows.map((row, rowIdx) => (
+                  <div key={`${row.stationId}-${row.daypartId || 'all'}`}
+                    className={`grid grid-cols-[160px_repeat(7,1fr)] gap-px ${
+                      row.stationName ? 'mt-0.5' : ''
+                    }`}>
+                    {/* Station label */}
+                    <div className="flex items-center gap-2 pr-2 py-1.5">
+                      {row.stationName ? (
+                        <span className="text-xs font-medium text-slate-700 truncate">{row.stationName}</span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 pl-3 truncate flex items-center gap-1">
+                          {row.daypartColor && <span className="w-2 h-2 rounded-full inline-block shrink-0" style={{ backgroundColor: row.daypartColor }} />}
+                          {row.daypartLabel}
+                        </span>
+                      )}
+                      {row.stationName && row.daypartLabel && (
+                        <span className="text-[9px] text-slate-400 shrink-0 flex items-center gap-0.5">
+                          {row.daypartColor && <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ backgroundColor: row.daypartColor }} />}
+                          {row.daypartLabel}
+                        </span>
+                      )}
                     </div>
-                    <div className="flex-1 grid gap-px" style={{ gridTemplateColumns: `repeat(${WEEKS_VISIBLE}, 1fr)` }}>
-                      {weeks.map((w, i) => {
-                        const coverage = isWeekCovered(brand.id, w);
-                        return (
-                          <div key={i} className="flex items-center justify-center py-1.5">
-                            {coverage === 'override' ? (
-                              <div className="w-full h-3 rounded-sm mx-0.5" style={{ backgroundColor: color, opacity: 0.85 }} />
-                            ) : coverage === 'base' ? (
-                              <div className="w-full h-3 rounded-sm mx-0.5 border border-dashed opacity-50" style={{ borderColor: color, backgroundColor: color + '15' }} />
-                            ) : (
-                              <div className="w-full h-3 rounded-sm mx-0.5 bg-slate-100" />
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
+
+                    {/* Day cells */}
+                    {row.cells.map((cell, colIdx) => {
+                      const isToday = isCurrentWeek && colIdx === todayColIdx;
+                      const isHovered = hoveredCell?.row === rowIdx && hoveredCell?.col === colIdx;
+                      return (
+                        <div key={colIdx}
+                          className={`relative flex items-center justify-center py-1.5 rounded-sm transition-all ${
+                            isToday ? 'bg-blue-50/50' : ''
+                          }`}
+                          onMouseEnter={() => setHoveredCell({ row: rowIdx, col: colIdx })}
+                          onMouseLeave={() => setHoveredCell(null)}>
+                          {cell ? (
+                            <button
+                              onClick={() => {
+                                const brand = brands.find(b => b.id === cell.brandId);
+                                if (brand) onSelectBrand(brand);
+                              }}
+                              className="w-full h-5 rounded-sm mx-0.5 transition-all hover:scale-y-125 hover:shadow-sm cursor-pointer"
+                              style={{ backgroundColor: cell.brandColor, opacity: 0.85 }}
+                              title={`${cell.brandName} — ${cell.scheduleName}`}
+                            />
+                          ) : (
+                            <div className="w-full h-5 rounded-sm mx-0.5 bg-slate-50 border border-dashed border-slate-200 flex items-center justify-center">
+                              <svg className="w-2.5 h-2.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01" />
+                              </svg>
+                            </div>
+                          )}
+
+                          {/* Hover tooltip */}
+                          {isHovered && cell && (
+                            <div className="absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-slate-900 text-white text-[10px] rounded shadow-lg whitespace-nowrap pointer-events-none">
+                              <div className="font-medium">{cell.brandName}</div>
+                              <div className="text-slate-300">{cell.scheduleName}</div>
+                            </div>
+                          )}
+                          {isHovered && !cell && (
+                            <div className="absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-amber-700 text-white text-[10px] rounded shadow-lg whitespace-nowrap pointer-events-none">
+                              No schedule
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
+                ))
+              )}
 
               {/* Legend */}
               <div className="flex items-center gap-4 mt-3 pt-2 border-t border-slate-100">
                 <div className="flex items-center gap-1.5">
-                  <div className="w-4 h-2.5 rounded-sm bg-slate-500 opacity-85" />
-                  <span className="text-[9px] text-slate-500">Custom schedule</span>
+                  <div className="w-4 h-3 rounded-sm bg-slate-500 opacity-85" />
+                  <span className="text-[9px] text-slate-500">Brand assigned</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <div className="w-4 h-2.5 rounded-sm border border-dashed border-slate-400 bg-slate-50" />
-                  <span className="text-[9px] text-slate-500">Using template</span>
+                  <div className="w-4 h-3 rounded-sm bg-slate-50 border border-dashed border-slate-200" />
+                  <span className="text-[9px] text-slate-500">Unscheduled</span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-4 h-2.5 rounded-sm bg-slate-100" />
-                  <span className="text-[9px] text-slate-500">No schedule</span>
-                </div>
+                <div className="flex-1" />
+                <span className="text-[9px] text-slate-400">Click a cell to view brand</span>
               </div>
             </div>
           </div>
