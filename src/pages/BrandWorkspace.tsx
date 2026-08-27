@@ -819,7 +819,7 @@ interface ScheduleCell {
 }
 
 interface StationRow {
-  stationId: number;
+  stationId: string;
   stationName: string;
   daypartId: string | null;
   daypartLabel: string | null;
@@ -828,9 +828,9 @@ interface StationRow {
 }
 
 function StationScheduleOverview({ brands, onSelectBrand, userStoreId }: { brands: Brand[]; onSelectBrand: (b: Brand) => void; userStoreId?: number | null }) {
-  const [stations, setStations] = useState<Array<{ id: number; name: string; store_id: number | null }>>([]);
+  const [stations, setStations] = useState<Array<{ id: string; name: string; store_id: number | null }>>([]);
   const [groups, setGroups] = useState<Array<{ id: string; brand_id: number; start_date: string; end_date: string | null; recurrence_weeks: number | null; is_base: boolean; name: string | null }>>([]);
-  const [entries, setEntries] = useState<Array<{ id: string; group_id: string; station_id: number; days_of_week: number[]; daypart_id: string | null }>>([]);
+  const [entries, setEntries] = useState<Array<{ id: string; group_id: string; placement_group_id: string | null; days_of_week: number[]; daypart_id: string | null }>>([]);
   const [daypartDefs, setDaypartDefs] = useState<Array<{ id: string; daypart_name: string; display_label: string; color: string }>>([]);
   const [expanded, setExpanded] = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
@@ -839,19 +839,20 @@ function StationScheduleOverview({ brands, onSelectBrand, userStoreId }: { brand
   const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const DAY_INDICES = [1, 2, 3, 4, 5, 6, 0];
 
-  useEffect(() => { loadData(); }, [brands]);
+  useEffect(() => { loadData(); }, [brands, userStoreId]);
 
   const loadData = async () => {
     const brandIds = brands.map(b => b.id);
     if (brandIds.length === 0) return;
 
-    const [stationsRes, groupsRes, daypartsRes] = await Promise.all([
-      supabase.from('stations').select('id, name, store_id').eq('status', 'active').eq('store_id', userStoreId || 0),
+    const [placementsRes, groupsRes, daypartsRes] = await Promise.all([
+      supabase.from('placement_groups').select('id, name, store_id, is_store_root').eq('store_id', userStoreId || 0).eq('is_store_root', false),
       supabase.from('brand_schedule_groups').select('*').in('brand_id', brandIds),
       supabase.from('daypart_definitions').select('*'),
     ]);
 
-    const loadedStations = (stationsRes.data || []) as typeof stations;
+    const loadedStations = ((placementsRes.data || []) as Array<{ id: string; name: string; store_id: number | null; is_store_root: boolean }>)
+      .map(p => ({ id: p.id, name: p.name, store_id: p.store_id }));
     const loadedGroups = (groupsRes.data || []) as typeof groups;
     setStations(loadedStations);
     setGroups(loadedGroups);
@@ -919,7 +920,7 @@ function StationScheduleOverview({ brands, onSelectBrand, userStoreId }: { brand
     const brandMap = new Map(brands.map(b => [b.id, b]));
 
     for (const station of stations) {
-      const stationEntries = entries.filter(e => e.station_id === station.id);
+      const stationEntries = entries.filter(e => e.placement_group_id === station.id);
       if (stationEntries.length === 0) {
         rows.push({
           stationId: station.id,
