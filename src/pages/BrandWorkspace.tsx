@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   UtensilsCrossed, Plus, Search, Globe, Layers, X, Share2,
   ChevronRight, Calendar, Package, Palette, Image, Check,
-  ArrowRight, Unlink, Building2, Info, Settings
+  ArrowRight, Unlink, Building2, Info, Settings, Utensils
 } from 'lucide-react';
 import Breadcrumb from '../components/Breadcrumb';
 import BrandScheduleEditor from '../components/BrandScheduleEditor';
@@ -371,6 +371,7 @@ function BrandOverviewCard({ brand, activeDays, onSelect, onUnlink, isSubBrand }
 const DETAIL_SECTIONS = [
   { id: 'identity', label: 'Identity', icon: Info },
   { id: 'colors', label: 'Colors', icon: Palette },
+  { id: 'stations', label: 'Stations', icon: Utensils },
   { id: 'schedule', label: 'Schedule', icon: Calendar },
   { id: 'actions', label: 'Quick Actions', icon: ArrowRight },
   { id: 'companies', label: 'Linked Companies', icon: Building2 },
@@ -400,9 +401,15 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
 
   // Companies
   const [linkedCompanies, setLinkedCompanies] = useState<Array<{ id: number; name: string }>>([]);
+  const [linkedStations, setLinkedStations] = useState<Array<{ id: number; name: string }>>([]);
+  const [allStations, setAllStations] = useState<Array<{ id: number; name: string }>>([]);
+  const [stationSearch, setStationSearch] = useState('');
+  const [showStationPicker, setShowStationPicker] = useState(false);
 
   useEffect(() => {
     loadLinkedCompanies();
+    loadLinkedStations();
+    loadAllStations();
   }, [brand.id]);
 
   useEffect(() => {
@@ -436,6 +443,28 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
     if (data) {
       setLinkedCompanies(data.map(d => ({ id: (d.companies as any)?.id, name: (d.companies as any)?.name || 'Unknown' })).filter(c => c.id));
     }
+  };
+
+  const loadLinkedStations = async () => {
+    const { data } = await supabase.from('brand_stations').select('station_id, stations(id, name)').eq('brand_id', brand.id);
+    if (data) {
+      setLinkedStations(data.map(d => ({ id: (d.stations as any)?.id, name: (d.stations as any)?.name || 'Unknown' })).filter(s => s.id));
+    }
+  };
+
+  const loadAllStations = async () => {
+    const { data } = await supabase.from('stations').select('id, name').eq('status', 'active').order('name');
+    if (data) setAllStations(data);
+  };
+
+  const handleAddStation = async (stationId: number) => {
+    await supabase.from('brand_stations').insert({ brand_id: brand.id, station_id: stationId });
+    loadLinkedStations();
+  };
+
+  const handleRemoveStation = async (stationId: number) => {
+    await supabase.from('brand_stations').delete().eq('brand_id', brand.id).eq('station_id', stationId);
+    loadLinkedStations();
   };
 
   const handleSaveColors = async () => {
@@ -597,6 +626,66 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
             userStoreId={userStoreId}
             onNavigateToScheduling={onNavigateToScheduling}
           />
+
+          {/* Webtrition Stations Section */}
+          <div data-section="stations" className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+                <Utensils className="w-4 h-4 text-[#00adf0]" /> Webtrition Stations
+              </h2>
+              <button onClick={() => setShowStationPicker(!showStationPicker)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#00adf0] border border-[#00adf0]/30 rounded-lg hover:bg-[#00adf0]/5 transition-colors">
+                <Plus className="w-3.5 h-3.5" /> Assign Station
+              </button>
+            </div>
+            {showStationPicker && (
+              <div className="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <div className="relative mb-2">
+                  <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" />
+                  <input
+                    type="text"
+                    value={stationSearch}
+                    onChange={e => setStationSearch(e.target.value)}
+                    placeholder="Search webtrition stations..."
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00adf0]/20 focus:border-[#00adf0]"
+                  />
+                </div>
+                <div className="max-h-48 overflow-y-auto space-y-1">
+                  {allStations
+                    .filter(s => !linkedStations.some(ls => ls.id === s.id))
+                    .filter(s => !stationSearch || s.name.toLowerCase().includes(stationSearch.toLowerCase()))
+                    .slice(0, 30)
+                    .map(station => (
+                      <button key={station.id} onClick={() => { handleAddStation(station.id); setStationSearch(''); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-slate-700 hover:bg-white rounded-md transition-colors">
+                        <Plus className="w-3.5 h-3.5 text-slate-400" />
+                        <span className="truncate">{station.name}</span>
+                      </button>
+                    ))}
+                  {allStations.filter(s => !linkedStations.some(ls => ls.id === s.id)).filter(s => !stationSearch || s.name.toLowerCase().includes(stationSearch.toLowerCase())).length === 0 && (
+                    <p className="text-xs text-slate-400 text-center py-2">No matching stations found</p>
+                  )}
+                </div>
+              </div>
+            )}
+            {linkedStations.length > 0 ? (
+              <div className="space-y-1.5">
+                {linkedStations.map(station => (
+                  <div key={station.id} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg group">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-md bg-amber-100 flex items-center justify-center">
+                        <Utensils className="w-3.5 h-3.5 text-amber-600" />
+                      </div>
+                      <span className="text-sm font-medium text-slate-700 truncate">{station.name}</span>
+                    </div>
+                    <button onClick={() => handleRemoveStation(station.id)} className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 transition-all">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400 text-center py-4">No webtrition stations assigned to this brand yet</p>
+            )}
+          </div>
 
           {/* Quick Actions Section */}
           <div data-section="actions" className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
