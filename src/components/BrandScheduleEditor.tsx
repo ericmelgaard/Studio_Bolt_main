@@ -201,6 +201,12 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
   const [createStartDate, setCreateStartDate] = useState('');
   const [createEndDate, setCreateEndDate] = useState('');
 
+  const [editGroupModal, setEditGroupModal] = useState<ScheduleGroup | null>(null);
+  const [editGName, setEditGName] = useState('');
+  const [editGStart, setEditGStart] = useState('');
+  const [editGEnd, setEditGEnd] = useState('');
+  const [editGRecurrence, setEditGRecurrence] = useState('');
+
   const { msg: toastMsg, show: showToast } = useToast();
   const todayMonday = useMemo(() => getMondayOfWeek(new Date()), []);
 
@@ -400,6 +406,39 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
     setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, recurrence_weeks: null } : g));
     setSaving(false);
     showToast('Recurrence removed');
+  };
+
+  /* ─── Edit Group Modal ─── */
+
+  const openEditGroupModal = (g: ScheduleGroup) => {
+    setEditGName(g.name || '');
+    setEditGStart(g.start_date);
+    setEditGEnd(g.end_date || '');
+    setEditGRecurrence(g.recurrence_weeks ? String(g.recurrence_weeks) : '');
+    setEditGroupModal(g);
+  };
+
+  const saveEditGroup = async () => {
+    if (!editGroupModal) return;
+    setSaving(true);
+    const updates: Record<string, unknown> = {
+      name: editGName.trim() || null,
+      start_date: editGStart,
+      end_date: editGEnd || null,
+      recurrence_weeks: editGRecurrence && parseInt(editGRecurrence) > 0 ? parseInt(editGRecurrence) : null,
+      updated_at: new Date().toISOString(),
+    };
+    await supabase.from('brand_schedule_groups').update(updates).eq('id', editGroupModal.id);
+    setGroups(prev => prev.map(g => g.id === editGroupModal.id ? {
+      ...g,
+      name: updates.name as string | null,
+      start_date: updates.start_date as string,
+      end_date: updates.end_date as string | null,
+      recurrence_weeks: updates.recurrence_weeks as number | null,
+    } : g));
+    setEditGroupModal(null);
+    setSaving(false);
+    showToast('Schedule updated');
   };
 
   /* ─── Revert ─── */
@@ -1159,23 +1198,27 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
                 const color = getGroupColor(g.id, groups);
                 const gEntries = entries.filter(e => e.group_id === g.id);
                 return (
-                  <button key={g.id}
-                    onClick={() => selectWeek(getMondayOfWeek(parseDate(g.start_date)))}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all ${
+                  <div key={g.id} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all ${
                       isActive ? 'bg-slate-100 ring-1 ring-slate-300' : 'hover:bg-slate-50'
                     }`}>
-                    <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-slate-800 truncate">{groupDisplayName(g)}</p>
-                      <p className="text-[10px] text-slate-400">
-                        {formatShortDate(parseDate(g.start_date))}
-                        {g.end_date ? ` \u2013 ${formatShortDate(parseDate(g.end_date))}` : ''}
-                        {g.recurrence_weeks ? ` \u00B7 Every ${g.recurrence_weeks}w` : ''}
-                        {' \u00B7 '}{gEntries.length} station{gEntries.length !== 1 ? 's' : ''}
-                      </p>
-                    </div>
-                    {isActive && <Check className="w-3.5 h-3.5 text-[#00adf0] shrink-0" />}
-                  </button>
+                    <button onClick={() => selectWeek(getMondayOfWeek(parseDate(g.start_date)))} className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-slate-800 truncate">{groupDisplayName(g)}</p>
+                        <p className="text-[10px] text-slate-400">
+                          {formatShortDate(parseDate(g.start_date))}
+                          {g.end_date ? ` \u2013 ${formatShortDate(parseDate(g.end_date))}` : ''}
+                          {g.recurrence_weeks ? ` \u00B7 Every ${g.recurrence_weeks}w` : ''}
+                          {' \u00B7 '}{gEntries.length} station{gEntries.length !== 1 ? 's' : ''}
+                        </p>
+                      </div>
+                      {isActive && <Check className="w-3.5 h-3.5 text-[#00adf0] shrink-0" />}
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); openEditGroupModal(g); }}
+                      className="p-1.5 text-slate-300 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all shrink-0">
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                  </div>
                 );
               })}
             </div>
@@ -1268,6 +1311,51 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
             <div className="flex justify-end gap-3">
               <button onClick={() => setConfirmRevert(false)} className="px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 rounded-lg">Cancel</button>
               <button onClick={revertWeek} className="px-4 py-2 text-sm font-medium text-white bg-red-500 hover:bg-red-600 rounded-lg">Revert</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ──── Edit Schedule Details Modal ──── */}
+      {editGroupModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+            <h3 className="text-base font-bold text-slate-900 mb-4">Edit Schedule Details</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Name</label>
+                <input value={editGName} onChange={e => setEditGName(e.target.value)}
+                  placeholder="e.g., Summer Menu, Week A..."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">Start Date</label>
+                  <input type="date" value={editGStart} onChange={e => setEditGStart(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">End Date</label>
+                  <input type="date" value={editGEnd} onChange={e => setEditGEnd(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Recurrence (weeks)</label>
+                <div className="flex items-center gap-2">
+                  <input type="number" min="0" value={editGRecurrence} onChange={e => setEditGRecurrence(e.target.value)}
+                    placeholder="0 = no repeat"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+                  <span className="text-xs text-slate-400 whitespace-nowrap">0 = one-time</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-5">
+              <button onClick={() => setEditGroupModal(null)} className="px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 rounded-lg">Cancel</button>
+              <button onClick={saveEditGroup} disabled={saving}
+                className="px-4 py-2 text-sm font-medium text-white bg-[#00adf0] rounded-lg hover:bg-[#0099d6] disabled:opacity-50 transition-colors">
+                {saving ? 'Saving...' : 'Save'}
+              </button>
             </div>
           </div>
         </div>

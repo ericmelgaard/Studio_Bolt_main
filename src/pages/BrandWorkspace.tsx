@@ -215,6 +215,11 @@ export default function BrandWorkspace({
         </div>
       </div>
 
+      {/* Brand Schedule Gantt Overview */}
+      {!loading && brands.length > 0 && (
+        <BrandScheduleGantt brands={brands} onSelectBrand={setSelectedBrand} />
+      )}
+
       <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
         <div className="p-6 border-b border-slate-200">
           <div className="relative max-w-md">
@@ -393,10 +398,6 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
   const [secondaryColor, setSecondaryColor] = useState(brand.brand_secondary_color || '#94a3b8');
   const [savingColors, setSavingColors] = useState(false);
 
-  // Schedule type
-  const [schedulingMode, setSchedulingMode] = useState(brand.scheduling_mode || 'static');
-  const [savingMode, setSavingMode] = useState(false);
-
   // Companies
   const [linkedCompanies, setLinkedCompanies] = useState<Array<{ id: number; name: string }>>([]);
 
@@ -442,14 +443,6 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
     await supabase.from('concepts').update({ brand_primary_color: primaryColor, brand_secondary_color: secondaryColor }).eq('id', brand.id);
     setSavingColors(false);
     setEditingColors(false);
-    onBrandUpdated();
-  };
-
-  const handleChangeSchedulingMode = async (mode: string) => {
-    setSchedulingMode(mode);
-    setSavingMode(true);
-    await supabase.from('concepts').update({ scheduling_mode: mode }).eq('id', brand.id);
-    setSavingMode(false);
     onBrandUpdated();
   };
 
@@ -541,19 +534,6 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
                   {brand.description && <p className="text-sm text-slate-500 mt-1">{brand.description}</p>}
                   <div className="flex flex-wrap gap-4 mt-3">
                     <div className="text-sm"><span className="text-slate-400">Type:</span> <span className="text-slate-700 font-medium capitalize">{brand.brand_type || 'Standard'}</span></div>
-                    <div className="text-sm flex items-center gap-1.5">
-                      <span className="text-slate-400">Schedule Type:</span>
-                      <select
-                        value={schedulingMode}
-                        onChange={(e) => handleChangeSchedulingMode(e.target.value)}
-                        disabled={savingMode}
-                        className="text-sm font-medium text-slate-700 bg-transparent border border-slate-200 rounded-md px-2 py-0.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none cursor-pointer hover:border-slate-300 transition-colors disabled:opacity-50"
-                      >
-                        <option value="cycle">Cycle</option>
-                        <option value="static">Static</option>
-                      </select>
-                      {savingMode && <span className="text-[10px] text-slate-400 animate-pulse">Saving...</span>}
-                    </div>
                   </div>
                   {brand.design_notes && (
                     <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
@@ -824,6 +804,198 @@ function LinkNationalBrandModal({ existingBrandIds, onClose, onLink }: { existin
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ─── Brand Schedule Gantt Overview ─── */
+
+function BrandScheduleGantt({ brands, onSelectBrand }: { brands: Brand[]; onSelectBrand: (b: Brand) => void }) {
+  const [scheduleData, setScheduleData] = useState<Record<number, Array<{ start_date: string; end_date: string | null; recurrence_weeks: number | null; is_base: boolean; name: string | null }>>>({});
+  const [expanded, setExpanded] = useState(true);
+  const [weekOffset, setWeekOffset] = useState(0);
+
+  const WEEKS_VISIBLE = 12;
+
+  useEffect(() => {
+    loadScheduleData();
+  }, [brands]);
+
+  const loadScheduleData = async () => {
+    const brandIds = brands.map(b => b.id);
+    if (brandIds.length === 0) return;
+    const { data } = await supabase.from('brand_schedule_groups').select('brand_id, start_date, end_date, recurrence_weeks, is_base, name').in('brand_id', brandIds);
+    if (data) {
+      const map: Record<number, typeof data> = {};
+      data.forEach(g => {
+        if (!map[g.brand_id]) map[g.brand_id] = [];
+        map[g.brand_id].push(g);
+      });
+      setScheduleData(map);
+    }
+  };
+
+  const getMonday = (d: Date): Date => {
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    const mon = new Date(d);
+    mon.setDate(mon.getDate() + diff);
+    mon.setHours(0, 0, 0, 0);
+    return mon;
+  };
+
+  const baseMonday = getMonday(new Date());
+  const startMonday = new Date(baseMonday);
+  startMonday.setDate(startMonday.getDate() + weekOffset * 7);
+
+  const weeks: Date[] = [];
+  for (let i = 0; i < WEEKS_VISIBLE; i++) {
+    const w = new Date(startMonday);
+    w.setDate(w.getDate() + i * 7);
+    weeks.push(w);
+  }
+
+  const formatWeekLabel = (d: Date) => {
+    return `${d.getMonth() + 1}/${d.getDate()}`;
+  };
+
+  const isWeekCovered = (brandId: number, weekStart: Date): 'override' | 'base' | null => {
+    const groups = scheduleData[brandId];
+    if (!groups) return null;
+    const weekMs = weekStart.getTime();
+    const weekEnd = weekMs + 6 * 86400000;
+
+    for (const g of groups) {
+      if (g.is_base) continue;
+      const gStart = new Date(g.start_date + 'T00:00:00').getTime();
+      const gEnd = g.end_date ? new Date(g.end_date + 'T00:00:00').getTime() : null;
+
+      if (g.recurrence_weeks && g.recurrence_weeks > 0) {
+        const weeksBetween = Math.round((weekMs - gStart) / (7 * 86400000));
+        if (weeksBetween >= 0 && weeksBetween % g.recurrence_weeks === 0) {
+          if (!gEnd || weekMs <= gEnd) return 'override';
+        }
+      } else {
+        if (gStart <= weekEnd && (!gEnd || gEnd >= weekMs)) return 'override';
+      }
+    }
+
+    const hasBase = groups.some(g => g.is_base);
+    if (hasBase) return 'base';
+    return null;
+  };
+
+  const todayMonday = getMonday(new Date());
+
+  if (brands.length === 0) return null;
+
+  return (
+    <div className="mb-4 bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+      <button onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-5 py-3 text-left hover:bg-slate-50 transition-colors">
+        <div className="flex items-center gap-2">
+          <Calendar className="w-4 h-4 text-[#00adf0]" />
+          <span className="text-sm font-semibold text-slate-800">Schedule Overview</span>
+          <span className="text-xs text-slate-400">({brands.filter(b => !b.is_wrapper).length} brands)</span>
+        </div>
+        <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+      </button>
+
+      {expanded && (
+        <div className="px-5 pb-4">
+          {/* Week navigation */}
+          <div className="flex items-center justify-between mb-3">
+            <button onClick={() => setWeekOffset(w => w - 4)}
+              className="p-1 rounded hover:bg-slate-100 text-slate-400 transition-colors">
+              <ChevronRight className="w-4 h-4 rotate-180" />
+            </button>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
+                {formatWeekLabel(weeks[0])} &ndash; {formatWeekLabel(weeks[WEEKS_VISIBLE - 1])}
+              </span>
+              {weekOffset !== 0 && (
+                <button onClick={() => setWeekOffset(0)}
+                  className="text-[10px] text-[#00adf0] hover:text-[#0099d6] font-medium">
+                  Today
+                </button>
+              )}
+            </div>
+            <button onClick={() => setWeekOffset(w => w + 4)}
+              className="p-1 rounded hover:bg-slate-100 text-slate-400 transition-colors">
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Gantt grid */}
+          <div className="overflow-x-auto">
+            <div className="min-w-[600px]">
+              {/* Week headers */}
+              <div className="flex border-b border-slate-100 pb-1 mb-1">
+                <div className="w-[140px] shrink-0" />
+                <div className="flex-1 grid" style={{ gridTemplateColumns: `repeat(${WEEKS_VISIBLE}, 1fr)` }}>
+                  {weeks.map((w, i) => {
+                    const isCurrent = w.getTime() === todayMonday.getTime();
+                    return (
+                      <div key={i} className={`text-center text-[9px] font-medium px-0.5 ${isCurrent ? 'text-blue-600 font-bold' : 'text-slate-400'}`}>
+                        {formatWeekLabel(w)}
+                        {isCurrent && <div className="w-1 h-1 rounded-full bg-blue-500 mx-auto mt-0.5" />}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Brand rows */}
+              {brands.filter(b => !b.is_wrapper).map(brand => {
+                const color = brand.brand_primary_color || '#64748b';
+                return (
+                  <div key={brand.id} className="flex items-center group hover:bg-slate-50/50 rounded transition-colors cursor-pointer"
+                    onClick={() => onSelectBrand(brand)}>
+                    <div className="w-[140px] shrink-0 flex items-center gap-2 py-1.5 pr-3">
+                      <div className="w-5 h-5 rounded flex items-center justify-center text-white text-[9px] font-bold shrink-0" style={{ backgroundColor: color }}>
+                        {brand.name.charAt(0)}
+                      </div>
+                      <span className="text-xs font-medium text-slate-700 truncate group-hover:text-[#00adf0] transition-colors">{brand.name}</span>
+                    </div>
+                    <div className="flex-1 grid gap-px" style={{ gridTemplateColumns: `repeat(${WEEKS_VISIBLE}, 1fr)` }}>
+                      {weeks.map((w, i) => {
+                        const coverage = isWeekCovered(brand.id, w);
+                        return (
+                          <div key={i} className="flex items-center justify-center py-1.5">
+                            {coverage === 'override' ? (
+                              <div className="w-full h-3 rounded-sm mx-0.5" style={{ backgroundColor: color, opacity: 0.85 }} />
+                            ) : coverage === 'base' ? (
+                              <div className="w-full h-3 rounded-sm mx-0.5 border border-dashed opacity-50" style={{ borderColor: color, backgroundColor: color + '15' }} />
+                            ) : (
+                              <div className="w-full h-3 rounded-sm mx-0.5 bg-slate-100" />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Legend */}
+              <div className="flex items-center gap-4 mt-3 pt-2 border-t border-slate-100">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-4 h-2.5 rounded-sm bg-slate-500 opacity-85" />
+                  <span className="text-[9px] text-slate-500">Custom schedule</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-4 h-2.5 rounded-sm border border-dashed border-slate-400 bg-slate-50" />
+                  <span className="text-[9px] text-slate-500">Using template</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-4 h-2.5 rounded-sm bg-slate-100" />
+                  <span className="text-[9px] text-slate-500">No schedule</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
