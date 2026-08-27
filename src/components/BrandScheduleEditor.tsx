@@ -604,58 +604,66 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
 
       {/* ──── Template + Timeline Strip ──── */}
       <div className="px-6 py-3 border-b border-slate-100 bg-slate-50/50">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <button onClick={() => setCalendarStart(addWeeks(calendarStart, -4))}
-              className="p-0.5 rounded hover:bg-slate-200 text-slate-400 transition-colors">
-              <ChevronLeft className="w-3.5 h-3.5" />
-            </button>
-            <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
-              {formatShortDate(calendarWeeks[0])} &ndash; {formatShortDate(calendarWeeks[7])}
-            </span>
-            <button onClick={() => setCalendarStart(addWeeks(calendarStart, 4))}
-              className="p-0.5 rounded hover:bg-slate-200 text-slate-400 transition-colors">
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <button onClick={() => { setCalendarStart(todayMonday); selectWeek(todayMonday); }}
-            className="text-[10px] text-[#00adf0] hover:text-[#0099d6] font-medium">
-            Jump to today
-          </button>
-        </div>
-
-        <div className="flex gap-1.5">
-          {/* Template card */}
+        <div className="flex gap-3">
+          {/* Template card — prominent left section */}
           <button
             onClick={selectTemplate}
-            className={`shrink-0 w-[88px] rounded-lg p-1.5 text-center transition-all border-2 ${
+            className={`shrink-0 w-[100px] rounded-xl p-2.5 text-center transition-all border-2 relative ${
               viewMode === 'template'
-                ? 'border-slate-500 bg-white shadow-md ring-1 ring-slate-400'
-                : 'border-dashed border-slate-300 bg-white/60 hover:bg-white hover:border-slate-400'
+                ? 'border-slate-600 bg-gradient-to-b from-slate-50 to-white shadow-lg ring-2 ring-slate-300'
+                : 'border-slate-300 bg-gradient-to-b from-slate-50/80 to-white/60 hover:bg-white hover:border-slate-400 hover:shadow-sm'
             }`}
-            style={{
-              backgroundImage: viewMode !== 'template' ? 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(148,163,184,0.07) 4px, rgba(148,163,184,0.07) 8px)' : undefined,
-            }}
           >
-            <div className="flex items-center justify-center gap-1 mb-1">
-              <LayoutTemplate className={`w-3 h-3 ${viewMode === 'template' ? 'text-slate-700' : 'text-slate-400'}`} />
-              <span className={`text-[9px] font-bold uppercase tracking-wider ${viewMode === 'template' ? 'text-slate-800' : 'text-slate-500'}`}>
-                Template
-              </span>
+            <div className={`w-7 h-7 rounded-lg mx-auto mb-1.5 flex items-center justify-center ${
+              viewMode === 'template' ? 'bg-slate-700' : 'bg-slate-400'
+            }`}>
+              <LayoutTemplate className="w-4 h-4 text-white" />
             </div>
-            <div className="h-1.5 rounded-full mx-auto bg-slate-500" style={{ width: '100%' }} />
-            <p className="text-[9px] text-slate-400 mt-1">
-              {baseEntries.length > 0 ? `${baseEntries.length} stn${baseEntries.length !== 1 ? 's' : ''}` : 'empty'}
+            <span className={`text-[10px] font-bold uppercase tracking-wider block ${viewMode === 'template' ? 'text-slate-800' : 'text-slate-500'}`}>
+              Template
+            </span>
+            <div className="h-2 rounded-full mx-auto bg-slate-500 mt-1.5" style={{ width: '100%' }} />
+            <p className="text-[9px] text-slate-400 mt-1.5">
+              {baseEntries.length > 0 ? `${baseEntries.length} station${baseEntries.length !== 1 ? 's' : ''}` : 'empty'}
             </p>
+            {viewMode === 'template' && (
+              <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-slate-600 border-2 border-white" />
+            )}
           </button>
 
           {/* Divider */}
-          <div className="flex items-center px-0.5">
-            <ArrowRight className="w-3 h-3 text-slate-300" />
+          <div className="flex items-center px-0.5 self-stretch">
+            <div className="flex flex-col items-center gap-1">
+              <div className="w-px flex-1 bg-slate-200" />
+              <ArrowRight className="w-3.5 h-3.5 text-slate-300" />
+              <div className="w-px flex-1 bg-slate-200" />
+            </div>
           </div>
 
-          {/* 8 calendar weeks */}
-          <div className="grid grid-cols-8 gap-1 flex-1 min-w-0">
+          {/* Calendar weeks section — date nav aligned above this area */}
+          <div className="flex-1 min-w-0 flex flex-col">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <button onClick={() => setCalendarStart(addWeeks(calendarStart, -4))}
+                  className="p-0.5 rounded hover:bg-slate-200 text-slate-400 transition-colors">
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
+                  {formatShortDate(calendarWeeks[0])} &ndash; {formatShortDate(calendarWeeks[7])}
+                </span>
+                <button onClick={() => setCalendarStart(addWeeks(calendarStart, 4))}
+                  className="p-0.5 rounded hover:bg-slate-200 text-slate-400 transition-colors">
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <button onClick={() => { setCalendarStart(todayMonday); selectWeek(todayMonday); }}
+                className="text-[10px] text-[#00adf0] hover:text-[#0099d6] font-medium">
+                Jump to today
+              </button>
+            </div>
+
+            {/* 8 calendar weeks */}
+            <div className="grid grid-cols-8 gap-1 flex-1 min-w-0">
             {calendarWeeks.map((ws) => {
               const resolved = weekResolutions.get(formatDateISO(ws));
               const isSelected = viewMode === 'week' && isSameWeek(ws, selectedWeek);
@@ -723,6 +731,7 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
                 </button>
               );
             })}
+            </div>
           </div>
         </div>
       </div>
