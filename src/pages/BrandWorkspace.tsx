@@ -217,7 +217,7 @@ export default function BrandWorkspace({
 
       {/* Station Schedule Overview */}
       {!loading && brands.length > 0 && (
-        <StationScheduleOverview brands={brands} onSelectBrand={setSelectedBrand} />
+        <StationScheduleOverview brands={brands} onSelectBrand={setSelectedBrand} userStoreId={userStoreId} />
       )}
 
       <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
@@ -827,7 +827,7 @@ interface StationRow {
   cells: (ScheduleCell | null)[];
 }
 
-function StationScheduleOverview({ brands, onSelectBrand }: { brands: Brand[]; onSelectBrand: (b: Brand) => void }) {
+function StationScheduleOverview({ brands, onSelectBrand, userStoreId }: { brands: Brand[]; onSelectBrand: (b: Brand) => void; userStoreId?: number | null }) {
   const [stations, setStations] = useState<Array<{ id: number; name: string; store_id: number | null }>>([]);
   const [groups, setGroups] = useState<Array<{ id: string; brand_id: number; start_date: string; end_date: string | null; recurrence_weeks: number | null; is_base: boolean; name: string | null }>>([]);
   const [entries, setEntries] = useState<Array<{ id: string; group_id: string; station_id: number; days_of_week: number[]; daypart_id: string | null }>>([]);
@@ -846,7 +846,7 @@ function StationScheduleOverview({ brands, onSelectBrand }: { brands: Brand[]; o
     if (brandIds.length === 0) return;
 
     const [stationsRes, groupsRes, daypartsRes] = await Promise.all([
-      supabase.from('stations').select('id, name, store_id').eq('status', 'active'),
+      supabase.from('stations').select('id, name, store_id').eq('status', 'active').eq('store_id', userStoreId || 0),
       supabase.from('brand_schedule_groups').select('*').in('brand_id', brandIds),
       supabase.from('daypart_definitions').select('*'),
     ]);
