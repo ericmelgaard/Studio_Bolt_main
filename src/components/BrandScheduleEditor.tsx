@@ -1,21 +1,29 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  Calendar, Plus, Copy, Check, X, ChevronLeft, ChevronRight,
-  Trash2, BarChart3, Grid3x3 as Grid3X3, Coffee, Sun, Sunset, Moon,
-  MoreVertical, Repeat, CalendarPlus, Eraser, ArrowRight, Info,
-  CircleDot, Infinity as InfinityIcon, CalendarClock,
+  Calendar, Plus, X, ChevronLeft, ChevronRight, Trash2,
+  Coffee, Sun, Sunset, Moon, Copy, Check, Repeat, Pencil,
+  Layers, CalendarPlus,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 /* ─── Types ─── */
 
-interface StationSchedule {
+interface ScheduleGroup {
   id: string;
-  station_id: number;
   brand_id: number;
-  cycle_week: number | null;
+  store_id: number | null;
+  name: string | null;
+  start_date: string;
+  end_date: string | null;
+  recurrence_weeks: number | null;
+  is_base: boolean;
+}
+
+interface GroupEntry {
+  id: string;
+  group_id: string;
+  station_id: number;
   days_of_week: number[];
-  is_active: boolean;
   daypart_id: string | null;
 }
 
@@ -27,29 +35,11 @@ interface Station {
   status: string;
 }
 
-type RecurrenceMode = 'repeating' | 'static' | 'ending';
-
-interface CycleSettings {
-  id: string;
-  cycle_duration_weeks: number;
-  starting_week_date: string;
-  end_date: string | null;
-  cycle_name: string | null;
-  store_id: number | null;
-  recurrence_mode: RecurrenceMode;
-}
-
 interface DaypartDef {
   id: string;
   daypart_name: string;
   display_label: string;
   color: string;
-}
-
-interface ScheduleRow {
-  station: Station;
-  daypartId: string | null;
-  daypartLabel: string;
 }
 
 interface Props {
@@ -61,7 +51,12 @@ interface Props {
 
 const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const DAY_INDICES = [1, 2, 3, 4, 5, 6, 0];
+const DAY_INDICES = [1, 2, 3, 4, 5, 6, 0]; // Mon=1 ... Sat=6, Sun=0
+
+const GROUP_COLORS = [
+  '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+  '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16',
+];
 
 const DAYPART_ICONS: Record<string, React.ReactNode> = {
   breakfast: <Coffee className="w-3 h-3" />,
@@ -70,1269 +65,817 @@ const DAYPART_ICONS: Record<string, React.ReactNode> = {
   late_night: <Moon className="w-3 h-3" />,
 };
 
-const RECURRENCE_LABELS: Record<RecurrenceMode, string> = {
-  repeating: 'Repeats indefinitely',
-  static: 'Static (same every week)',
-  ending: 'Ends on a specific date',
-};
-
 /* ─── Date Helpers ─── */
 
-function getWeekStartDate(weekNum: number, cycleStart: string): Date {
-  const start = new Date(cycleStart + 'T00:00:00');
-  start.setDate(start.getDate() + (weekNum - 1) * 7);
-  return start;
+function getMondayOfWeek(d: Date): Date {
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  const mon = new Date(d);
+  mon.setDate(mon.getDate() + diff);
+  mon.setHours(0, 0, 0, 0);
+  return mon;
 }
 
-function getWeekEndDate(weekNum: number, cycleStart: string): Date {
-  const start = getWeekStartDate(weekNum, cycleStart);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 6);
-  return end;
+function addWeeks(d: Date, weeks: number): Date {
+  const r = new Date(d);
+  r.setDate(r.getDate() + weeks * 7);
+  return r;
 }
 
 function formatShortDate(d: Date): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function formatWeekRange(weekNum: number, cycleStart: string): string {
-  const start = getWeekStartDate(weekNum, cycleStart);
-  const end = getWeekEndDate(weekNum, cycleStart);
-  return `${formatShortDate(start)} - ${formatShortDate(end)}`;
+function formatDateISO(d: Date): string {
+  return d.toISOString().split('T')[0];
 }
 
-function computeCurrentWeek(settings: CycleSettings | null): number | null {
-  if (!settings) return null;
-  const start = new Date(settings.starting_week_date + 'T00:00:00');
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  start.setHours(0, 0, 0, 0);
+function parseDate(s: string): Date {
+  return new Date(s + 'T00:00:00');
+}
 
-  if (now < start) return null;
+function weeksBetween(a: Date, b: Date): number {
+  return Math.round((b.getTime() - a.getTime()) / (7 * 24 * 60 * 60 * 1000));
+}
 
-  if (settings.recurrence_mode === 'ending' && settings.end_date) {
-    const end = new Date(settings.end_date + 'T00:00:00');
-    if (now > end) return null;
+function isSameWeek(a: Date, b: Date): boolean {
+  const ma = getMondayOfWeek(a);
+  const mb = getMondayOfWeek(b);
+  return ma.getTime() === mb.getTime();
+}
+
+/* ─── Priority Resolution ─── */
+
+function resolveGroupForWeek(weekStart: Date, groups: ScheduleGroup[]): ScheduleGroup | null {
+  let best: ScheduleGroup | null = null;
+  let bestPriority = -1;
+
+  for (const g of groups) {
+    const gStart = parseDate(g.start_date);
+    if (weekStart < getMondayOfWeek(gStart) && !isSameWeek(weekStart, gStart)) continue;
+    if (g.end_date) {
+      const gEnd = parseDate(g.end_date);
+      if (weekStart > gEnd) continue;
+    }
+
+    if (g.is_base) {
+      if (bestPriority < 0) {
+        best = g;
+        bestPriority = 0;
+      }
+      continue;
+    }
+
+    if (g.recurrence_weeks) {
+      const diff = weeksBetween(getMondayOfWeek(gStart), weekStart);
+      if (diff < 0) continue;
+      if (diff % g.recurrence_weeks !== 0) continue;
+      const startTime = gStart.getTime();
+      if (bestPriority < 1 || (bestPriority === 1 && best && parseDate(best.start_date).getTime() < startTime)) {
+        best = g;
+        bestPriority = 1;
+      }
+    } else {
+      const gStartMonday = getMondayOfWeek(gStart);
+      if (isSameWeek(weekStart, gStartMonday)) {
+        const startTime = gStart.getTime();
+        if (bestPriority < 2 || (bestPriority === 2 && best && parseDate(best.start_date).getTime() < startTime)) {
+          best = g;
+          bestPriority = 2;
+        }
+      }
+    }
   }
-
-  const diffMs = now.getTime() - start.getTime();
-  const diffWeeks = Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000));
-  const duration = settings.cycle_duration_weeks;
-  return (diffWeeks % duration) + 1;
+  return best;
 }
 
-function isFutureStart(settings: CycleSettings | null): boolean {
-  if (!settings) return false;
-  const start = new Date(settings.starting_week_date + 'T00:00:00');
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  start.setHours(0, 0, 0, 0);
-  return start > now;
+function getGroupColor(groupId: string, groups: ScheduleGroup[]): string {
+  const idx = groups.findIndex(g => g.id === groupId);
+  return GROUP_COLORS[idx % GROUP_COLORS.length];
+}
+
+/* ─── Toast ─── */
+
+function useToast() {
+  const [msg, setMsg] = useState<string | null>(null);
+  const show = useCallback((text: string) => {
+    setMsg(text);
+    setTimeout(() => setMsg(null), 2500);
+  }, []);
+  return { msg, show };
 }
 
 /* ─── Main Component ─── */
 
 export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }: Props) {
-  const [stations, setStations] = useState<Station[]>([]);
-  const [allStoreStations, setAllStoreStations] = useState<Station[]>([]);
-  const [schedules, setSchedules] = useState<StationSchedule[]>([]);
-  const [cycleSettings, setCycleSettings] = useState<CycleSettings | null>(null);
+  const [groups, setGroups] = useState<ScheduleGroup[]>([]);
+  const [entries, setEntries] = useState<GroupEntry[]>([]);
+  const [allStations, setAllStations] = useState<Station[]>([]);
   const [daypartDefs, setDaypartDefs] = useState<DaypartDef[]>([]);
-  const [selectedCycleWeek, setSelectedCycleWeek] = useState<number>(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  const [calendarStart, setCalendarStart] = useState(() => getMondayOfWeek(new Date()));
+  const [weeksToShow] = useState(8);
+  const [selectedWeek, setSelectedWeek] = useState<Date | null>(null);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [showGroupForm, setShowGroupForm] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<ScheduleGroup | null>(null);
   const [showAddStation, setShowAddStation] = useState(false);
-  const [showCycleSetup, setShowCycleSetup] = useState(false);
-  const [showWeekActions, setShowWeekActions] = useState(false);
-  const [showCopyToPicker, setShowCopyToPicker] = useState(false);
-  const [viewMode, setViewMode] = useState<'week' | 'timeline'>('week');
-  const [toast, setToast] = useState<string | null>(null);
-  const [confirmClear, setConfirmClear] = useState(false);
-  const [confirmCopyTo, setConfirmCopyTo] = useState<number | null>(null);
 
-  const showToast = useCallback((msg: string) => setToast(msg), []);
+  const { msg: toastMsg, show: showToast } = useToast();
 
-  useEffect(() => { loadAll(); }, [brandId]);
+  /* ─── Load Data ─── */
 
   useEffect(() => {
-    if (toast) {
-      const t = setTimeout(() => setToast(null), 2500);
-      return () => clearTimeout(t);
-    }
-  }, [toast]);
+    loadData();
+  }, [brandId, userStoreId]);
 
-  useEffect(() => {
-    if (!showWeekActions) return;
-    const handler = () => setShowWeekActions(false);
-    window.addEventListener('click', handler);
-    return () => window.removeEventListener('click', handler);
-  }, [showWeekActions]);
-
-  const loadAll = async () => {
+  const loadData = async () => {
     setLoading(true);
-    await Promise.all([loadScheduleData(), loadDayparts(), loadAllStoreStations()]);
+    const [groupsRes, stationsRes, daypartsRes] = await Promise.all([
+      supabase.from('brand_schedule_groups').select('*').eq('brand_id', brandId),
+      supabase.from('stations').select('*').eq('status', 'active'),
+      supabase.from('daypart_definitions').select('*'),
+    ]);
+
+    const loadedGroups = (groupsRes.data || []) as ScheduleGroup[];
+    setGroups(loadedGroups);
+
+    if (loadedGroups.length > 0) {
+      const groupIds = loadedGroups.map(g => g.id);
+      const { data: entriesData } = await supabase
+        .from('brand_schedule_group_entries')
+        .select('*')
+        .in('group_id', groupIds);
+      setEntries((entriesData || []) as GroupEntry[]);
+    } else {
+      setEntries([]);
+    }
+
+    setAllStations((stationsRes.data || []) as Station[]);
+    setDaypartDefs((daypartsRes.data || []) as DaypartDef[]);
     setLoading(false);
   };
 
-  const loadScheduleData = async () => {
-    const { data: schedData } = await supabase
-      .from('station_schedules')
-      .select('id, station_id, brand_id, cycle_week, days_of_week, is_active, daypart_id')
-      .eq('brand_id', brandId);
-    if (schedData) setSchedules(schedData);
+  /* ─── Calendar weeks ─── */
 
-    const stationIds = [...new Set((schedData || []).map(s => s.station_id))];
-    if (stationIds.length > 0) {
-      const { data: stData } = await supabase.from('stations').select('id, name, store_id, uses_cycle, status').in('id', stationIds);
-      if (stData) setStations(stData);
-
-      const firstStoreId = stData?.[0]?.store_id || userStoreId;
-      if (firstStoreId) {
-        const { data: cycleData } = await supabase
-          .from('organization_cycle_settings')
-          .select('id, cycle_duration_weeks, starting_week_date, end_date, cycle_name, store_id, recurrence_mode')
-          .eq('store_id', firstStoreId)
-          .maybeSingle();
-        if (cycleData) setCycleSettings(cycleData as CycleSettings);
-      }
-    } else if (userStoreId) {
-      const { data: cycleData } = await supabase
-        .from('organization_cycle_settings')
-        .select('id, cycle_duration_weeks, starting_week_date, end_date, cycle_name, store_id, recurrence_mode')
-        .eq('store_id', userStoreId)
-        .maybeSingle();
-      if (cycleData) setCycleSettings(cycleData as CycleSettings);
+  const calendarWeeks = useMemo(() => {
+    const weeks: Date[] = [];
+    for (let i = 0; i < weeksToShow; i++) {
+      weeks.push(addWeeks(calendarStart, i));
     }
-  };
+    return weeks;
+  }, [calendarStart, weeksToShow]);
 
-  const loadDayparts = async () => {
-    const { data } = await supabase.from('daypart_definitions').select('id, daypart_name, display_label, color').eq('is_active', true).order('sort_order');
-    if (data) {
-      const unique = data.reduce<DaypartDef[]>((acc, d) => {
-        if (!acc.find(x => x.daypart_name === d.daypart_name)) acc.push(d);
-        return acc;
-      }, []);
-      setDaypartDefs(unique);
+  const todayMonday = useMemo(() => getMondayOfWeek(new Date()), []);
+
+  const weekResolutions = useMemo(() => {
+    const map = new Map<string, ScheduleGroup | null>();
+    for (const w of calendarWeeks) {
+      map.set(formatDateISO(w), resolveGroupForWeek(w, groups));
     }
-  };
+    return map;
+  }, [calendarWeeks, groups]);
 
-  const loadAllStoreStations = async () => {
-    if (!userStoreId) {
-      const { data } = await supabase.from('stations').select('id, name, store_id, uses_cycle, status').eq('status', 'active').order('sort_order').limit(100);
-      if (data) setAllStoreStations(data);
-    } else {
-      const { data } = await supabase.from('stations').select('id, name, store_id, uses_cycle, status').eq('store_id', userStoreId).eq('status', 'active').order('sort_order');
-      if (data) setAllStoreStations(data);
+  /* ─── Selected group & entries ─── */
+
+  const activeGroup = useMemo(() => {
+    if (selectedGroupId) return groups.find(g => g.id === selectedGroupId) || null;
+    if (selectedWeek) {
+      const resolved = weekResolutions.get(formatDateISO(selectedWeek));
+      return resolved || null;
     }
-  };
+    return null;
+  }, [selectedGroupId, selectedWeek, groups, weekResolutions]);
 
-  /* ─── Derived state ─── */
+  const activeEntries = useMemo(() => {
+    if (!activeGroup) return [];
+    return entries.filter(e => e.group_id === activeGroup.id);
+  }, [activeGroup, entries]);
 
-  const cycleDuration = cycleSettings?.cycle_duration_weeks || 1;
-  const cycleWeeks = Array.from({ length: cycleDuration }, (_, i) => i + 1);
-  const cycleName = cycleSettings?.cycle_name || '';
-  const currentWeek = useMemo(() => computeCurrentWeek(cycleSettings), [cycleSettings]);
-  const futureStart = isFutureStart(cycleSettings);
-  const isStatic = cycleSettings?.recurrence_mode === 'static' || (cycleDuration === 1 && !cycleSettings?.recurrence_mode);
 
-  const getWeekLabel = (weekNum: number) => {
-    if (cycleName) return `${cycleName} Week ${weekNum}`;
-    return `Week ${weekNum}`;
-  };
 
-  const scheduleRows = useMemo<ScheduleRow[]>(() => {
-    const rows: ScheduleRow[] = [];
-    const seen = new Set<string>();
+  /* ─── Group CRUD ─── */
 
-    for (const sched of schedules) {
-      const station = stations.find(s => s.id === sched.station_id);
-      if (!station) continue;
-      const key = `${sched.station_id}-${sched.daypart_id || 'all'}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-
-      const dp = sched.daypart_id ? daypartDefs.find(d => d.id === sched.daypart_id) : null;
-      rows.push({
-        station,
-        daypartId: sched.daypart_id,
-        daypartLabel: dp ? dp.display_label : 'All Dayparts',
-      });
-    }
-
-    rows.sort((a, b) => a.station.name.localeCompare(b.station.name));
-    return rows;
-  }, [schedules, stations, daypartDefs]);
-
-  /* ─── Schedule matching ─── */
-
-  const getScheduleForRow = (stationId: number, daypartId: string | null, weekNum: number) => {
-    const cycleWeekValue = isStatic ? null : weekNum;
-    return schedules.find(s =>
-      s.station_id === stationId &&
-      s.is_active &&
-      (s.daypart_id === daypartId || (s.daypart_id === null && daypartId === null)) &&
-      (s.cycle_week === cycleWeekValue || (isStatic && s.cycle_week === null))
-    );
-  };
-
-  /* ─── Week-aware helpers ─── */
-
-  const weekSchedules = useMemo(() => {
-    const cycleWeekValue = isStatic ? null : selectedCycleWeek;
-    return schedules.filter(s =>
-      s.is_active &&
-      (s.cycle_week === cycleWeekValue || (isStatic && s.cycle_week === null))
-    );
-  }, [schedules, selectedCycleWeek, isStatic]);
-
-  const isWeekEmpty = useMemo(() => weekSchedules.length === 0, [weekSchedules]);
-
-  const isWeekDuplicateOfPrev = useMemo(() => {
-    if (isStatic || selectedCycleWeek <= 1 || cycleDuration <= 1) return false;
-    const prevWeek = selectedCycleWeek - 1;
-    const prevScheds = schedules.filter(s =>
-      s.is_active && s.cycle_week === prevWeek
-    );
-    if (prevScheds.length === 0) return false;
-    if (prevScheds.length !== weekSchedules.length) return false;
-
-    const normalize = (arr: StationSchedule[]) =>
-      arr.map(s => `${s.station_id}-${s.daypart_id || 'all'}-[${[...s.days_of_week].sort()}]`).sort().join('|');
-
-    return normalize(prevScheds) === normalize(weekSchedules);
-  }, [schedules, weekSchedules, selectedCycleWeek, isStatic, cycleDuration]);
-
-  /* ─── Toggle handlers ─── */
-
-  const toggleDayForRow = async (stationId: number, daypartId: string | null, dayIndex: number, weekNum: number) => {
+  const createGroup = async (name: string, startDate: string, endDate: string | null, recurrenceWeeks: number | null, isBase: boolean) => {
     setSaving(true);
-    const cycleWeekValue = isStatic ? null : weekNum;
-    const existing = schedules.find(s =>
-      s.station_id === stationId &&
-      s.brand_id === brandId &&
-      s.is_active &&
-      (s.daypart_id === daypartId || (s.daypart_id === null && daypartId === null)) &&
-      (s.cycle_week === cycleWeekValue || (isStatic && s.cycle_week === null))
-    );
+    const { data } = await supabase.from('brand_schedule_groups').insert({
+      brand_id: brandId,
+      store_id: userStoreId || null,
+      name: name || null,
+      start_date: startDate,
+      end_date: endDate || null,
+      recurrence_weeks: recurrenceWeeks,
+      is_base: isBase,
+    }).select().maybeSingle();
+    if (data) {
+      setGroups(prev => [...prev, data as ScheduleGroup]);
+      setSelectedGroupId(data.id);
+      setSelectedWeek(null);
+      showToast('Schedule group created');
+    }
+    setShowGroupForm(false);
+    setEditingGroup(null);
+    setSaving(false);
+  };
 
-    if (existing) {
-      const hasDayNow = existing.days_of_week.includes(dayIndex);
-      const newDays = hasDayNow
-        ? existing.days_of_week.filter(d => d !== dayIndex)
-        : [...existing.days_of_week, dayIndex];
+  const updateGroup = async (id: string, updates: Partial<ScheduleGroup>) => {
+    setSaving(true);
+    await supabase.from('brand_schedule_groups').update({
+      name: updates.name,
+      start_date: updates.start_date,
+      end_date: updates.end_date,
+      recurrence_weeks: updates.recurrence_weeks,
+      is_base: updates.is_base,
+      updated_at: new Date().toISOString(),
+    }).eq('id', id);
+    setGroups(prev => prev.map(g => g.id === id ? { ...g, ...updates } : g));
+    setShowGroupForm(false);
+    setEditingGroup(null);
+    setSaving(false);
+    showToast('Schedule group updated');
+  };
 
-      if (newDays.length === 0) {
-        await supabase.from('station_schedules').delete().eq('id', existing.id);
-        setSchedules(prev => prev.filter(s => s.id !== existing.id));
-      } else {
-        await supabase.from('station_schedules').update({ days_of_week: newDays }).eq('id', existing.id);
-        setSchedules(prev => prev.map(s => s.id === existing.id ? { ...s, days_of_week: newDays } : s));
+  const deleteGroup = async (id: string) => {
+    setSaving(true);
+    await supabase.from('brand_schedule_groups').delete().eq('id', id);
+    setGroups(prev => prev.filter(g => g.id !== id));
+    setEntries(prev => prev.filter(e => e.group_id !== id));
+    if (selectedGroupId === id) {
+      setSelectedGroupId(null);
+    }
+    setSaving(false);
+    showToast('Schedule group deleted');
+  };
+
+  const duplicateGroupForWeek = async (sourceGroup: ScheduleGroup, targetWeekStart: Date) => {
+    setSaving(true);
+    const startDate = formatDateISO(targetWeekStart);
+    const endDateAdj = new Date(targetWeekStart);
+    endDateAdj.setDate(endDateAdj.getDate() + 6);
+
+    const { data: newGroup } = await supabase.from('brand_schedule_groups').insert({
+      brand_id: brandId,
+      store_id: userStoreId || null,
+      name: `Week of ${formatShortDate(targetWeekStart)}`,
+      start_date: startDate,
+      end_date: formatDateISO(endDateAdj),
+      recurrence_weeks: null,
+      is_base: false,
+    }).select().maybeSingle();
+
+    if (newGroup) {
+      const sourceEntries = entries.filter(e => e.group_id === sourceGroup.id);
+      if (sourceEntries.length > 0) {
+        const newEntries = sourceEntries.map(e => ({
+          group_id: newGroup.id,
+          station_id: e.station_id,
+          days_of_week: [...e.days_of_week],
+          daypart_id: e.daypart_id,
+        }));
+        const { data: insertedEntries } = await supabase.from('brand_schedule_group_entries').insert(newEntries).select();
+        if (insertedEntries) {
+          setEntries(prev => [...prev, ...(insertedEntries as GroupEntry[])]);
+        }
       }
-    } else {
-      const { data } = await supabase
-        .from('station_schedules')
-        .insert({ station_id: stationId, brand_id: brandId, cycle_week: cycleWeekValue, days_of_week: [dayIndex], is_active: true, daypart_id: daypartId })
-        .select().maybeSingle();
-      if (data) setSchedules(prev => [...prev, data]);
+      setGroups(prev => [...prev, newGroup as ScheduleGroup]);
+      setSelectedGroupId(newGroup.id);
+      setSelectedWeek(targetWeekStart);
+      showToast('Week customized - edit it below');
     }
     setSaving(false);
   };
 
-  const toggleDayColumn = async (dayIndex: number, weekNum: number) => {
+  /* ─── Entry CRUD ─── */
+
+  const addStationToGroup = async (groupId: string, stationId: number, daypartId: string | null) => {
     setSaving(true);
-    const cycleWeekValue = isStatic ? null : weekNum;
-
-    const allActive = scheduleRows.every(row => {
-      const sched = getScheduleForRow(row.station.id, row.daypartId, weekNum);
-      return sched?.days_of_week.includes(dayIndex);
-    });
-
-    if (allActive) {
-      for (const row of scheduleRows) {
-        const sched = getScheduleForRow(row.station.id, row.daypartId, weekNum);
-        if (sched) {
-          const newDays = sched.days_of_week.filter(d => d !== dayIndex);
-          if (newDays.length === 0) {
-            await supabase.from('station_schedules').delete().eq('id', sched.id);
-            setSchedules(prev => prev.filter(s => s.id !== sched.id));
-          } else {
-            await supabase.from('station_schedules').update({ days_of_week: newDays }).eq('id', sched.id);
-            setSchedules(prev => prev.map(s => s.id === sched.id ? { ...s, days_of_week: newDays } : s));
-          }
-        }
-      }
-    } else {
-      for (const row of scheduleRows) {
-        const sched = getScheduleForRow(row.station.id, row.daypartId, weekNum);
-        if (sched) {
-          if (!sched.days_of_week.includes(dayIndex)) {
-            const newDays = [...sched.days_of_week, dayIndex];
-            await supabase.from('station_schedules').update({ days_of_week: newDays }).eq('id', sched.id);
-            setSchedules(prev => prev.map(s => s.id === sched.id ? { ...s, days_of_week: newDays } : s));
-          }
-        } else {
-          const { data } = await supabase
-            .from('station_schedules')
-            .insert({ station_id: row.station.id, brand_id: brandId, cycle_week: cycleWeekValue, days_of_week: [dayIndex], is_active: true, daypart_id: row.daypartId })
-            .select().maybeSingle();
-          if (data) setSchedules(prev => [...prev, data]);
-        }
-      }
-    }
-    setSaving(false);
-  };
-
-  /* ─── Station management ─── */
-
-  const handleAddStation = async (stationId: number, daypartId: string | null) => {
-    setSaving(true);
-    const cycleWeekValue = isStatic ? null : selectedCycleWeek;
-    const { data } = await supabase
-      .from('station_schedules')
-      .insert({ station_id: stationId, brand_id: brandId, cycle_week: cycleWeekValue, days_of_week: [1, 2, 3, 4, 5], is_active: true, daypart_id: daypartId })
-      .select().maybeSingle();
+    const { data } = await supabase.from('brand_schedule_group_entries').insert({
+      group_id: groupId,
+      station_id: stationId,
+      days_of_week: [1, 2, 3, 4, 5],
+      daypart_id: daypartId,
+    }).select().maybeSingle();
     if (data) {
-      setSchedules(prev => [...prev, data]);
-      const station = allStoreStations.find(s => s.id === stationId);
-      if (station && !stations.find(s => s.id === stationId)) {
-        setStations(prev => [...prev, station]);
-      }
+      setEntries(prev => [...prev, data as GroupEntry]);
+      showToast('Station added');
     }
     setShowAddStation(false);
     setSaving(false);
-    showToast('Station added');
   };
 
-  const handleRemoveRow = async (stationId: number, daypartId: string | null) => {
-    setSaving(true);
-    let query = supabase.from('station_schedules').delete().eq('station_id', stationId).eq('brand_id', brandId);
-    if (daypartId) {
-      query = query.eq('daypart_id', daypartId);
-    } else {
-      query = query.is('daypart_id', null);
-    }
-    await query;
-    setSchedules(prev => prev.filter(s => !(s.station_id === stationId && (daypartId ? s.daypart_id === daypartId : s.daypart_id === null))));
-    setSaving(false);
+  const toggleDay = async (entryId: string, dayIndex: number) => {
+    const entry = entries.find(e => e.id === entryId);
+    if (!entry) return;
+    const hasDayNow = entry.days_of_week.includes(dayIndex);
+    const newDays = hasDayNow
+      ? entry.days_of_week.filter(d => d !== dayIndex)
+      : [...entry.days_of_week, dayIndex];
+    await supabase.from('brand_schedule_group_entries').update({ days_of_week: newDays }).eq('id', entryId);
+    setEntries(prev => prev.map(e => e.id === entryId ? { ...e, days_of_week: newDays } : e));
+  };
+
+  const removeEntry = async (entryId: string) => {
+    await supabase.from('brand_schedule_group_entries').delete().eq('id', entryId);
+    setEntries(prev => prev.filter(e => e.id !== entryId));
     showToast('Station removed');
   };
 
-  /* ─── Cycle settings ─── */
+  /* ─── Quick Actions ─── */
 
-  const ensureCycleSettings = async (): Promise<CycleSettings | null> => {
-    if (cycleSettings) return cycleSettings;
-    const storeId = stations[0]?.store_id || userStoreId;
-    if (!storeId) {
-      setShowCycleSetup(true);
-      return null;
-    }
-    const today = new Date().toISOString().split('T')[0];
-    const { data } = await supabase
-      .from('organization_cycle_settings')
-      .insert({ store_id: storeId, cycle_duration_weeks: 1, starting_week_date: today, recurrence_mode: 'repeating' })
-      .select().maybeSingle();
-    if (data) {
-      setCycleSettings(data as CycleSettings);
-      return data as CycleSettings;
-    }
-    return null;
+  const handleCreateFirstSchedule = () => {
+    setEditingGroup(null);
+    setShowGroupForm(true);
   };
 
-  const addBlankWeek = async () => {
-    const settings = await ensureCycleSettings();
-    if (!settings) {
-      setShowCycleSetup(true);
-      return;
-    }
-    const newDuration = settings.cycle_duration_weeks + 1;
-    await supabase.from('organization_cycle_settings').update({ cycle_duration_weeks: newDuration, recurrence_mode: settings.recurrence_mode === 'static' ? 'repeating' : settings.recurrence_mode }).eq('id', settings.id);
-    const updated = { ...settings, cycle_duration_weeks: newDuration, recurrence_mode: (settings.recurrence_mode === 'static' ? 'repeating' : settings.recurrence_mode) as RecurrenceMode };
-    setCycleSettings(updated);
-    setSelectedCycleWeek(newDuration);
-    setShowWeekActions(false);
-    showToast(`Blank Week ${newDuration} added`);
-  };
-
-  const duplicateWeek = async (sourceWeek: number) => {
-    const settings = await ensureCycleSettings();
-    if (!settings) return;
-    setSaving(true);
-
-    const targetWeek = settings.cycle_duration_weeks + 1;
-    const mode = settings.recurrence_mode === 'static' ? 'repeating' : settings.recurrence_mode;
-    await supabase.from('organization_cycle_settings').update({ cycle_duration_weeks: targetWeek, recurrence_mode: mode }).eq('id', settings.id);
-    setCycleSettings({ ...settings, cycle_duration_weeks: targetWeek, recurrence_mode: mode });
-
-    const sourceWeekValue = settings.cycle_duration_weeks === 1 ? null : sourceWeek;
-    const sourceSchedules = schedules.filter(s =>
-      s.is_active && (s.cycle_week === sourceWeekValue || (settings.cycle_duration_weeks === 1 && s.cycle_week === null))
-    );
-
-    if (sourceSchedules.length > 0) {
-      const newRows = sourceSchedules.map(s => ({
-        station_id: s.station_id,
-        brand_id: s.brand_id,
-        cycle_week: targetWeek,
-        days_of_week: [...s.days_of_week],
-        is_active: true,
-        daypart_id: s.daypart_id,
-      }));
-      const { data } = await supabase.from('station_schedules').insert(newRows).select();
-      if (data) setSchedules(prev => [...prev, ...data]);
-    }
-
-    setSelectedCycleWeek(targetWeek);
-    setShowWeekActions(false);
-    setSaving(false);
-    showToast(`Week ${targetWeek} created (copied from ${sourceWeek})`);
-  };
-
-  const copyWeekTo = async (sourceWeek: number, targetWeek: number) => {
-    setSaving(true);
-    const sourceWeekValue = isStatic ? null : sourceWeek;
-    const targetWeekValue = isStatic ? null : targetWeek;
-
-    const sourceSchedules = schedules.filter(s =>
-      s.is_active && (s.cycle_week === sourceWeekValue || (isStatic && s.cycle_week === null))
-    );
-
-    const existingTarget = schedules.filter(s =>
-      s.is_active && (s.cycle_week === targetWeekValue || (isStatic && s.cycle_week === null))
-    );
-
-    if (existingTarget.length > 0) {
-      const targetIds = existingTarget.map(s => s.id);
-      await supabase.from('station_schedules').delete().in('id', targetIds);
-      setSchedules(prev => prev.filter(s => !targetIds.includes(s.id)));
-    }
-
-    if (sourceSchedules.length > 0) {
-      const newRows = sourceSchedules.map(s => ({
-        station_id: s.station_id,
-        brand_id: s.brand_id,
-        cycle_week: targetWeekValue,
-        days_of_week: [...s.days_of_week],
-        is_active: true,
-        daypart_id: s.daypart_id,
-      }));
-      const { data } = await supabase.from('station_schedules').insert(newRows).select();
-      if (data) setSchedules(prev => [...prev, ...data]);
-    }
-
-    setSelectedCycleWeek(targetWeek);
-    setShowCopyToPicker(false);
-    setConfirmCopyTo(null);
-    setSaving(false);
-    showToast(`Week ${sourceWeek} copied to Week ${targetWeek}`);
-  };
-
-  const clearWeek = async (weekNum: number) => {
-    setSaving(true);
-    const weekValue = isStatic ? null : weekNum;
-    const weekScheds = schedules.filter(s =>
-      s.is_active && (s.cycle_week === weekValue || (isStatic && s.cycle_week === null))
-    );
-    if (weekScheds.length > 0) {
-      const ids = weekScheds.map(s => s.id);
-      await supabase.from('station_schedules').delete().in('id', ids);
-      setSchedules(prev => prev.filter(s => !ids.includes(s.id)));
-    }
-    setConfirmClear(false);
-    setShowWeekActions(false);
-    setSaving(false);
-    showToast(`Week ${weekNum} cleared`);
-  };
-
-  const handleSaveCycleSetup = async (name: string, startDate: string, endDate: string, duration: number, mode: RecurrenceMode) => {
-    const storeId = stations[0]?.store_id || userStoreId;
-    if (!storeId) return;
-    setSaving(true);
-
-    if (cycleSettings) {
-      await supabase.from('organization_cycle_settings').update({
-        cycle_name: name || null,
-        starting_week_date: startDate,
-        end_date: mode === 'ending' ? (endDate || null) : null,
-        cycle_duration_weeks: duration,
-        recurrence_mode: mode,
-      }).eq('id', cycleSettings.id);
-      setCycleSettings({
-        ...cycleSettings,
-        cycle_name: name || null,
-        starting_week_date: startDate,
-        end_date: mode === 'ending' ? (endDate || null) : null,
-        cycle_duration_weeks: duration,
-        recurrence_mode: mode,
-      });
+  const handleCustomizeWeek = (weekStart: Date) => {
+    const resolved = resolveGroupForWeek(weekStart, groups);
+    if (resolved) {
+      duplicateGroupForWeek(resolved, weekStart);
     } else {
-      const { data } = await supabase
-        .from('organization_cycle_settings')
-        .insert({
-          store_id: storeId,
-          cycle_duration_weeks: duration,
-          starting_week_date: startDate,
-          end_date: mode === 'ending' ? (endDate || null) : null,
-          cycle_name: name || null,
-          recurrence_mode: mode,
-        })
-        .select().maybeSingle();
-      if (data) setCycleSettings(data as CycleSettings);
+      setEditingGroup(null);
+      setShowGroupForm(true);
     }
-
-    if (selectedCycleWeek > duration) setSelectedCycleWeek(1);
-    setShowCycleSetup(false);
-    setSaving(false);
-    showToast('Cycle settings saved');
   };
 
-  /* ─── Navigation ─── */
-
-  const goToPrevWeek = () => {
-    if (selectedCycleWeek > 1) setSelectedCycleWeek(selectedCycleWeek - 1);
-  };
-  const goToNextWeek = () => {
-    if (selectedCycleWeek < cycleDuration) setSelectedCycleWeek(selectedCycleWeek + 1);
+  const handleWeekClick = (weekStart: Date) => {
+    setSelectedWeek(weekStart);
+    const resolved = weekResolutions.get(formatDateISO(weekStart));
+    setSelectedGroupId(resolved?.id || null);
   };
 
   /* ─── Render ─── */
 
   if (loading) {
     return (
-      <div data-section="schedule" className="bg-white rounded-lg shadow-sm border border-slate-200 p-12 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#00adf0]"></div>
+      <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-8">
+        <div className="flex items-center justify-center gap-2 text-slate-400">
+          <div className="w-5 h-5 border-2 border-slate-300 border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm">Loading schedule...</span>
+        </div>
       </div>
     );
   }
 
   return (
-    <div data-section="schedule" className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden relative">
-      {toast && (
-        <div className="absolute top-3 right-3 z-20 px-3 py-2 bg-emerald-600 text-white text-xs font-medium rounded-lg shadow-lg animate-fade-in flex items-center gap-1.5">
-          <Check className="w-3.5 h-3.5" /> {toast}
-        </div>
-      )}
-
+    <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
       {/* Header */}
-      <div className="p-6 border-b border-slate-200">
-        <div className="flex items-center justify-between mb-3">
+      <div className="px-6 py-4 border-b border-slate-200">
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-[#00adf0]" />
-            <h2 className="text-base font-semibold text-slate-900">Cycle Schedule</h2>
-            {cycleSettings && (
-              <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
-                futureStart ? 'bg-amber-100 text-amber-700' :
-                isStatic ? 'bg-slate-100 text-slate-600' :
-                cycleSettings.recurrence_mode === 'ending' ? 'bg-orange-100 text-orange-700' :
-                'bg-emerald-100 text-emerald-700'
-              }`}>
-                {futureStart ? 'Starts in future' : RECURRENCE_LABELS[cycleSettings.recurrence_mode]}
-              </span>
-            )}
+            <Calendar className="w-5 h-5 text-slate-400" />
+            <h2 className="text-base font-semibold text-slate-900">Brand Schedule</h2>
+            {saving && <span className="text-xs text-slate-400 animate-pulse ml-2">Saving...</span>}
           </div>
-
           <div className="flex items-center gap-2">
-            {saving && <span className="text-xs text-slate-400 animate-pulse">Saving...</span>}
-
-            <button onClick={() => setShowAddStation(true)} className="px-3 py-1.5 text-xs font-medium text-white bg-[#00adf0] hover:bg-[#0099d6] rounded-lg transition-colors flex items-center gap-1.5">
-              <Plus className="w-3.5 h-3.5" /> Add Station
-            </button>
-
-            {/* Week Actions dropdown */}
-            <div className="relative">
+            {groups.length > 0 && (
               <button
-                onClick={(e) => { e.stopPropagation(); setShowWeekActions(!showWeekActions); }}
-                className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1.5"
+                onClick={handleCreateFirstSchedule}
+                className="px-3 py-1.5 text-xs font-medium text-white bg-[#00adf0] hover:bg-[#0099d6] rounded-lg transition-colors flex items-center gap-1.5"
               >
-                <MoreVertical className="w-3.5 h-3.5" /> Week Actions
+                <Plus className="w-3.5 h-3.5" /> New Schedule Group
               </button>
-              {showWeekActions && (
-                <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-slate-200 rounded-lg shadow-xl z-30 py-1" onClick={(e) => e.stopPropagation()}>
-                  <button onClick={() => duplicateWeek(selectedCycleWeek)} className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2">
-                    <Copy className="w-3.5 h-3.5 text-slate-400" /> Duplicate this week
-                  </button>
-                  <button onClick={addBlankWeek} className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2">
-                    <CalendarPlus className="w-3.5 h-3.5 text-slate-400" /> Add blank week
-                  </button>
-                  <button onClick={() => { setShowWeekActions(false); setShowCopyToPicker(true); }} className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2">
-                    <ArrowRight className="w-3.5 h-3.5 text-slate-400" /> Copy this week to...
-                  </button>
-                  <div className="border-t border-slate-100 my-1" />
-                  <button onClick={() => { setShowWeekActions(false); setConfirmClear(true); }} className="w-full px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50 flex items-center gap-2">
-                    <Eraser className="w-3.5 h-3.5 text-red-400" /> Clear this week
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Prominent view-mode tabs */}
-        <div className="flex items-center gap-1 mt-3 p-1 bg-slate-100 rounded-xl w-fit">
-          <button
-            onClick={() => setViewMode('week')}
-            className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
-              viewMode === 'week'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Grid3X3 className="w-4 h-4" /> Week Detail
-          </button>
-          <button
-            onClick={() => setViewMode('timeline')}
-            className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
-              viewMode === 'timeline'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <BarChart3 className="w-4 h-4" /> Month &amp; Quarter Timeline
-          </button>
-        </div>
-
-        {/* Cycle info bar */}
-        <div className="flex items-center justify-between flex-wrap gap-2 mt-3">
-          <div className="flex items-center gap-3">
-            {cycleName && <span className="text-sm font-semibold text-slate-700">{cycleName}</span>}
-            {cycleSettings?.starting_week_date && (
-              <span className="text-xs text-slate-400">
-                {formatShortDate(new Date(cycleSettings.starting_week_date + 'T00:00:00'))}
-                {cycleSettings.end_date && ` - ${formatShortDate(new Date(cycleSettings.end_date + 'T00:00:00'))}`}
-                {!cycleSettings.end_date && !isStatic && ' - repeats indefinitely'}
-              </span>
             )}
-            <button onClick={() => setShowCycleSetup(true)} className="text-xs text-[#00adf0] hover:text-[#0099d6] font-medium">
-              {cycleSettings ? 'Edit Cycle' : 'Set Up Cycle'}
-            </button>
           </div>
-
-          {/* Daypart legend */}
-          {daypartDefs.length > 0 && (
-            <div className="flex items-center gap-3">
-              {daypartDefs.map(dp => (
-                <div key={dp.id} className="flex items-center gap-1">
-                  {DAYPART_ICONS[dp.daypart_name] || <span className="w-2 h-2 rounded-full bg-slate-400 inline-block" />}
-                  <span className="text-[10px] text-slate-500">{dp.display_label}</span>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
+      </div>
 
-        {/* Week navigation bar */}
-        {cycleDuration > 1 && (
-          <div className="flex items-center gap-2 mt-4">
-            <button
-              onClick={goToPrevWeek}
-              disabled={selectedCycleWeek <= 1}
-              className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-
-            <div className="flex items-center gap-1 overflow-x-auto pb-1 flex-1">
-              {cycleWeeks.map(w => {
-                const isCurrent = currentWeek === w;
-                const isFuture = cycleSettings?.starting_week_date && getWeekStartDate(w, cycleSettings.starting_week_date) > new Date();
+      {groups.length === 0 ? (
+        /* Empty state */
+        <div className="p-8 text-center">
+          <Layers className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+          <p className="text-sm font-medium text-slate-700 mb-1">No schedule set up yet</p>
+          <p className="text-xs text-slate-400 mb-5 max-w-sm mx-auto">
+            Create a base schedule to assign this brand to stations. It will run every week until you add variations.
+          </p>
+          <button
+            onClick={handleCreateFirstSchedule}
+            className="px-5 py-2.5 text-sm font-medium text-white bg-[#00adf0] hover:bg-[#0099d6] rounded-lg transition-colors inline-flex items-center gap-2"
+          >
+            <CalendarPlus className="w-4 h-4" /> Create Base Schedule
+          </button>
+        </div>
+      ) : (
+        <>
+          {/* Schedule Group Cards */}
+          <div className="px-6 pt-4 pb-2">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Schedule Groups</span>
+              <span className="text-[10px] text-slate-400">({groups.length})</span>
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-2">
+              {groups.map((g) => {
+                const color = getGroupColor(g.id, groups);
+                const isSelected = activeGroup?.id === g.id;
                 return (
                   <button
-                    key={w}
-                    onClick={() => setSelectedCycleWeek(w)}
-                    className={`px-3 py-2 text-xs font-medium rounded-lg transition-all whitespace-nowrap flex flex-col items-center min-w-[90px] relative ${
-                      selectedCycleWeek === w
-                        ? 'text-white shadow-sm'
-                        : isCurrent
-                        ? 'text-blue-700 bg-blue-50 border border-blue-200'
-                        : 'text-slate-600 bg-slate-100 hover:bg-slate-200'
+                    key={g.id}
+                    onClick={() => {
+                      setSelectedGroupId(g.id);
+                      setSelectedWeek(null);
+                    }}
+                    className={`shrink-0 px-3 py-2.5 rounded-lg border text-left transition-all min-w-[160px] max-w-[220px] ${
+                      isSelected
+                        ? 'border-slate-300 bg-slate-50 shadow-sm ring-2 ring-offset-1'
+                        : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                     }`}
-                    style={selectedCycleWeek === w ? { backgroundColor: brandColor } : undefined}
+                    style={isSelected ? { '--tw-ring-color': color } as React.CSSProperties : undefined}
                   >
-                    <div className="flex items-center gap-1">
-                      <span>{getWeekLabel(w)}</span>
-                      {isCurrent && (
-                        <span className={`text-[8px] px-1 py-0 rounded-full font-bold ${selectedCycleWeek === w ? 'bg-white/25' : 'bg-blue-200 text-blue-800'}`}>
-                          NOW
-                        </span>
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                      <span className="text-xs font-semibold text-slate-800 truncate">
+                        {g.name || (g.is_base ? 'Base Schedule' : `Week of ${formatShortDate(parseDate(g.start_date))}`)}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 leading-tight">
+                      {g.is_base ? (
+                        'Default - every week'
+                      ) : g.recurrence_weeks ? (
+                        `Every ${g.recurrence_weeks} week${g.recurrence_weeks > 1 ? 's' : ''} from ${formatShortDate(parseDate(g.start_date))}`
+                      ) : (
+                        `${formatShortDate(parseDate(g.start_date))}${g.end_date ? ` - ${formatShortDate(parseDate(g.end_date))}` : ' (one-time)'}`
                       )}
                     </div>
-                    {cycleSettings?.starting_week_date && (
-                      <span className="text-[9px] opacity-75 mt-0.5">{formatWeekRange(w, cycleSettings.starting_week_date)}</span>
-                    )}
-                    {isFuture && !isCurrent && (
-                      <span className="text-[8px] text-amber-500 mt-0.5">upcoming</span>
-                    )}
                   </button>
                 );
               })}
             </div>
+          </div>
 
+          {/* Calendar Timeline */}
+          <div className="px-6 py-3 border-t border-slate-100">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCalendarStart(addWeeks(calendarStart, -4))}
+                  className="p-1 rounded hover:bg-slate-100 text-slate-400 transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-xs font-semibold text-slate-600">
+                  {formatShortDate(calendarWeeks[0])} - {formatShortDate(addWeeks(calendarWeeks[calendarWeeks.length - 1], 1))}
+                </span>
+                <button
+                  onClick={() => setCalendarStart(addWeeks(calendarStart, 4))}
+                  className="p-1 rounded hover:bg-slate-100 text-slate-400 transition-colors"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+              <button
+                onClick={() => setCalendarStart(getMondayOfWeek(new Date()))}
+                className="text-[10px] text-[#00adf0] hover:text-[#0099d6] font-medium"
+              >
+                Jump to today
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              {calendarWeeks.map((weekStart) => {
+                const weekEnd = new Date(weekStart);
+                weekEnd.setDate(weekEnd.getDate() + 6);
+                const resolved = weekResolutions.get(formatDateISO(weekStart));
+                const isCurrentWeek = isSameWeek(weekStart, todayMonday);
+                const isSelected = selectedWeek && isSameWeek(weekStart, selectedWeek);
+                const color = resolved ? getGroupColor(resolved.id, groups) : '#e2e8f0';
+                const weekEntries = resolved ? entries.filter(e => e.group_id === resolved.id) : [];
+                const activeDayCount = weekEntries.reduce((sum, e) => sum + e.days_of_week.length, 0);
+
+                return (
+                  <div
+                    key={formatDateISO(weekStart)}
+                    onClick={() => handleWeekClick(weekStart)}
+                    className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-all group ${
+                      isSelected
+                        ? 'bg-slate-100 ring-1 ring-slate-300'
+                        : 'hover:bg-slate-50'
+                    } ${isCurrentWeek ? 'border border-blue-200 bg-blue-50/30' : ''}`}
+                  >
+                    {/* Date range */}
+                    <div className="w-[110px] shrink-0">
+                      <div className={`text-xs font-medium ${isCurrentWeek ? 'text-blue-700' : 'text-slate-700'}`}>
+                        {formatShortDate(weekStart)} - {formatShortDate(weekEnd)}
+                      </div>
+                      {isCurrentWeek && (
+                        <span className="text-[8px] font-bold text-blue-600 uppercase tracking-wide">This Week</span>
+                      )}
+                    </div>
+
+                    {/* Color bar showing active group */}
+                    <div className="flex-1 min-w-0">
+                      {resolved ? (
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="h-6 rounded flex-1 flex items-center px-2 gap-1.5"
+                            style={{ backgroundColor: color + '20', borderLeft: `3px solid ${color}` }}
+                          >
+                            <span className="text-[11px] font-medium truncate" style={{ color }}>
+                              {resolved.name || (resolved.is_base ? 'Base Schedule' : 'Custom')}
+                            </span>
+                            {resolved.recurrence_weeks && (
+                              <Repeat className="w-3 h-3 shrink-0" style={{ color }} />
+                            )}
+                          </div>
+                          <span className="text-[10px] text-slate-400 shrink-0">
+                            {weekEntries.length} stn{weekEntries.length !== 1 ? 's' : ''} / {activeDayCount} day{activeDayCount !== 1 ? 's' : ''}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="h-6 rounded bg-slate-100 flex items-center px-2">
+                          <span className="text-[11px] text-slate-400 italic">No schedule</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Customize button */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleCustomizeWeek(weekStart); }}
+                      className="opacity-0 group-hover:opacity-100 px-2 py-1 text-[10px] font-medium text-slate-500 hover:text-[#00adf0] hover:bg-white rounded transition-all shrink-0"
+                      title="Customize this week"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Detail Editor for Selected Group */}
+          {activeGroup && (
+            <div className="border-t border-slate-200">
+              <GroupDetailEditor
+                group={activeGroup}
+                entries={activeEntries}
+                allStations={allStations}
+                daypartDefs={daypartDefs}
+                brandColor={brandColor}
+                groupColor={getGroupColor(activeGroup.id, groups)}
+                saving={saving}
+                showAddStation={showAddStation}
+                onShowAddStation={setShowAddStation}
+                onToggleDay={toggleDay}
+                onRemoveEntry={removeEntry}
+                onAddStation={(stationId, daypartId) => addStationToGroup(activeGroup.id, stationId, daypartId)}
+                onEditGroup={() => { setEditingGroup(activeGroup); setShowGroupForm(true); }}
+                onDeleteGroup={() => deleteGroup(activeGroup.id)}
+                onSetRecurrence={async (weeks) => {
+                  await updateGroup(activeGroup.id, { ...activeGroup, recurrence_weeks: weeks });
+                }}
+              />
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Group Form Modal */}
+      {showGroupForm && (
+        <GroupFormModal
+          existing={editingGroup}
+          hasBase={groups.some(g => g.is_base)}
+          saving={saving}
+          onSave={(name, startDate, endDate, recurrenceWeeks, isBase) => {
+            if (editingGroup) {
+              updateGroup(editingGroup.id, {
+                name, start_date: startDate, end_date: endDate,
+                recurrence_weeks: recurrenceWeeks, is_base: isBase,
+              });
+            } else {
+              createGroup(name, startDate, endDate, recurrenceWeeks, isBase);
+            }
+          }}
+          onClose={() => { setShowGroupForm(false); setEditingGroup(null); }}
+        />
+      )}
+
+      {/* Toast */}
+      {toastMsg && (
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-lg shadow-lg text-sm font-medium animate-[fadeIn_0.2s_ease-out]">
+          {toastMsg}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Group Detail Editor ─── */
+
+function GroupDetailEditor({
+  group, entries, allStations, daypartDefs, brandColor, groupColor, saving,
+  showAddStation, onShowAddStation, onToggleDay, onRemoveEntry, onAddStation, onEditGroup,
+  onDeleteGroup, onSetRecurrence,
+}: {
+  group: ScheduleGroup;
+  entries: GroupEntry[];
+  allStations: Station[];
+  daypartDefs: DaypartDef[];
+  brandColor: string;
+  groupColor: string;
+  saving: boolean;
+  showAddStation: boolean;
+  onShowAddStation: (v: boolean) => void;
+  onToggleDay: (entryId: string, dayIndex: number) => void;
+  onRemoveEntry: (entryId: string) => void;
+  onAddStation: (stationId: number, daypartId: string | null) => void;
+  onEditGroup: () => void;
+  onDeleteGroup: () => void;
+  onSetRecurrence: (weeks: number | null) => Promise<void>;
+}) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const groupLabel = group.name || (group.is_base ? 'Base Schedule' : `Week of ${formatShortDate(parseDate(group.start_date))}`);
+
+  return (
+    <div className="p-6">
+      {/* Group header bar */}
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: groupColor }} />
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">{groupLabel}</h3>
+            <p className="text-[11px] text-slate-400">
+              {group.is_base ? (
+                'Runs every week unless overridden'
+              ) : group.recurrence_weeks ? (
+                `Repeats every ${group.recurrence_weeks} week${group.recurrence_weeks > 1 ? 's' : ''} starting ${formatShortDate(parseDate(group.start_date))}${group.end_date ? ` until ${formatShortDate(parseDate(group.end_date))}` : ''}`
+              ) : (
+                `${formatShortDate(parseDate(group.start_date))}${group.end_date ? ` - ${formatShortDate(parseDate(group.end_date))}` : ' only'}`
+              )}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {!group.is_base && !group.recurrence_weeks && (
             <button
-              onClick={goToNextWeek}
-              disabled={selectedCycleWeek >= cycleDuration}
-              className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              onClick={() => onSetRecurrence(1)}
+              className="px-2.5 py-1.5 text-[11px] font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1"
+              title="Make this schedule repeat every week"
             >
-              <ChevronRight className="w-4 h-4" />
+              <Repeat className="w-3 h-3" /> Repeat Weekly
             </button>
-          </div>
-        )}
-
-        {/* Single-week date display */}
-        {cycleDuration === 1 && cycleSettings?.starting_week_date && (
-          <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
-            <Calendar className="w-3 h-3" />
-            <span>{formatWeekRange(1, cycleSettings.starting_week_date)}</span>
-            {currentWeek === 1 && <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full font-bold">CURRENT</span>}
-          </div>
-        )}
-
-        {/* Week status indicators */}
-        {viewMode === 'week' && !isStatic && cycleDuration > 1 && (
-          <div className="mt-2 flex items-center gap-3 text-[10px] text-slate-400">
-            {isWeekEmpty && (
-              <span className="flex items-center gap-1 text-amber-500">
-                <Info className="w-3 h-3" /> This week is empty
+          )}
+          {!group.is_base && group.recurrence_weeks && (
+            <div className="flex items-center gap-1 bg-green-50 border border-green-200 rounded-lg px-2.5 py-1.5">
+              <Repeat className="w-3 h-3 text-green-600" />
+              <span className="text-[11px] font-medium text-green-700">
+                Every {group.recurrence_weeks}w
               </span>
-            )}
-            {isWeekDuplicateOfPrev && (
-              <span className="flex items-center gap-1 text-blue-500">
-                <Repeat className="w-3 h-3" /> Same as previous week
-              </span>
-            )}
-          </div>
-        )}
+              <button
+                onClick={() => onSetRecurrence(null)}
+                className="ml-1 text-green-400 hover:text-red-500 transition-colors"
+                title="Stop repeating"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+          <button
+            onClick={onEditGroup}
+            className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+            title="Edit group settings"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+          {!group.is_base && (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+              title="Delete this schedule group"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <button
+            onClick={() => onShowAddStation(true)}
+            className="px-3 py-1.5 text-xs font-medium text-white bg-[#00adf0] hover:bg-[#0099d6] rounded-lg transition-colors flex items-center gap-1.5"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add Station
+          </button>
+        </div>
       </div>
 
-      {/* Content */}
-      <div className="p-6">
-        {scheduleRows.length === 0 ? (
-          <div className="text-center py-12">
-            <Calendar className="w-10 h-10 mx-auto mb-3 text-slate-300" />
-            <p className="text-sm font-medium text-slate-600">No stations assigned to this brand yet</p>
-            <p className="text-xs text-slate-400 mt-1 mb-4">Add a station to start building this brand's schedule.</p>
-            <button onClick={() => setShowAddStation(true)} className="px-4 py-2 text-sm bg-[#00adf0] text-white rounded-lg hover:bg-[#0099d6] transition-colors inline-flex items-center gap-2">
-              <Plus className="w-4 h-4" /> Add Station
-            </button>
-          </div>
-        ) : viewMode === 'week' ? (
-          <WeeklyGrid
-            rows={scheduleRows}
-            selectedWeek={selectedCycleWeek}
-            brandColor={brandColor}
-            saving={saving}
-            daypartDefs={daypartDefs}
-            onToggleDay={toggleDayForRow}
-            onToggleDayColumn={toggleDayColumn}
-            onRemoveRow={handleRemoveRow}
-            getScheduleForRow={getScheduleForRow}
-          />
-        ) : (
-          <TimelineView
-            rows={scheduleRows}
-            cycleWeeks={cycleWeeks}
-            cycleDuration={cycleDuration}
-            cycleSettings={cycleSettings}
-            brandColor={brandColor}
-            daypartDefs={daypartDefs}
-            getScheduleForRow={getScheduleForRow}
-            getWeekLabel={getWeekLabel}
-            currentWeek={currentWeek}
-            onJumpToWeek={(w) => { setViewMode('week'); setSelectedCycleWeek(w); }}
-          />
-        )}
-      </div>
+      {/* Station/Day Grid */}
+      {entries.length === 0 ? (
+        <div className="text-center py-8">
+          <p className="text-sm text-slate-500 mb-3">No stations assigned to this schedule yet.</p>
+          <button
+            onClick={() => onShowAddStation(true)}
+            className="px-4 py-2 text-sm bg-[#00adf0] text-white rounded-lg hover:bg-[#0099d6] transition-colors inline-flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" /> Add Station
+          </button>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr>
+                <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide pb-3 pr-4 w-56">Station</th>
+                {DAY_NAMES.map((day) => (
+                  <th key={day} className="text-center pb-3 w-14">
+                    <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{day}</span>
+                  </th>
+                ))}
+                <th className="w-10"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map(entry => {
+                const station = allStations.find(s => s.id === entry.station_id);
+                if (!station) return null;
+                const dpDef = entry.daypart_id ? daypartDefs.find(d => d.id === entry.daypart_id) : null;
+                return (
+                  <tr key={entry.id} className="border-t border-slate-100 group/row hover:bg-slate-50/50 transition-colors">
+                    <td className="py-3 pr-4">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: brandColor }}>
+                          {station.name.charAt(0)}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-slate-800 truncate">{station.name}</p>
+                          <p className="text-[9px] text-slate-400">{dpDef ? dpDef.display_label : 'All Dayparts'}</p>
+                        </div>
+                      </div>
+                    </td>
+                    {DAY_INDICES.map((dayIndex, colIdx) => {
+                      const isActive = entry.days_of_week.includes(dayIndex);
+                      return (
+                        <td key={colIdx} className="py-3">
+                          <div className="flex justify-center">
+                            <button
+                              onClick={() => onToggleDay(entry.id, dayIndex)}
+                              disabled={saving}
+                              className={`w-9 h-9 rounded-lg transition-all flex items-center justify-center ${
+                                isActive
+                                  ? 'text-white shadow-sm hover:opacity-80'
+                                  : 'bg-slate-100 text-slate-300 hover:bg-slate-200 hover:text-slate-400'
+                              }`}
+                              style={isActive ? { backgroundColor: brandColor } : undefined}
+                            >
+                              {isActive ? <Check className="w-4 h-4" /> : <span className="text-[10px]">{DAY_LABELS[colIdx]}</span>}
+                            </button>
+                          </div>
+                        </td>
+                      );
+                    })}
+                    <td className="py-3">
+                      <button
+                        onClick={() => onRemoveEntry(entry.id)}
+                        className="p-1.5 text-slate-300 hover:text-red-500 rounded-lg opacity-0 group-hover/row:opacity-100 transition-all"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Add Station Modal */}
       {showAddStation && (
         <AddStationModal
-          allStations={allStoreStations}
-          existingRows={scheduleRows}
+          allStations={allStations}
+          existingEntries={entries}
           daypartDefs={daypartDefs}
           saving={saving}
-          onAdd={handleAddStation}
-          onClose={() => setShowAddStation(false)}
+          onAdd={onAddStation}
+          onClose={() => onShowAddStation(false)}
         />
       )}
 
-      {/* Cycle Setup Modal */}
-      {showCycleSetup && (
-        <CycleSetupModal
-          existing={cycleSettings}
-          saving={saving}
-          onSave={handleSaveCycleSetup}
-          onClose={() => setShowCycleSetup(false)}
-        />
-      )}
-
-      {/* Copy To Picker Modal */}
-      {showCopyToPicker && (
-        <CopyToPickerModal
-          sourceWeek={selectedCycleWeek}
-          cycleWeeks={cycleWeeks.filter(w => w !== selectedCycleWeek)}
-          cycleSettings={cycleSettings}
-          getWeekLabel={getWeekLabel}
-          onSelect={(target) => setConfirmCopyTo(target)}
-          onClose={() => setShowCopyToPicker(false)}
-        />
-      )}
-
-      {/* Confirm Clear */}
-      {confirmClear && (
-        <ConfirmDialog
-          title={`Clear Week ${selectedCycleWeek}?`}
-          message="This will remove all station assignments for this week. This cannot be undone."
-          confirmLabel="Clear Week"
-          onConfirm={() => clearWeek(selectedCycleWeek)}
-          onCancel={() => setConfirmClear(false)}
-        />
-      )}
-
-      {/* Confirm Copy To */}
-      {confirmCopyTo !== null && (
-        <ConfirmDialog
-          title={`Copy Week ${selectedCycleWeek} to Week ${confirmCopyTo}?`}
-          message="This will overwrite all existing assignments in the target week."
-          confirmLabel="Overwrite & Copy"
-          onConfirm={() => copyWeekTo(selectedCycleWeek, confirmCopyTo)}
-          onCancel={() => setConfirmCopyTo(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-/* ─── Weekly Grid View ─── */
-
-function WeeklyGrid({ rows, selectedWeek, brandColor, saving, daypartDefs, onToggleDay, onToggleDayColumn, onRemoveRow, getScheduleForRow }: {
-  rows: ScheduleRow[];
-  selectedWeek: number;
-  brandColor: string;
-  saving: boolean;
-  daypartDefs: DaypartDef[];
-  onToggleDay: (stationId: number, daypartId: string | null, dayIndex: number, weekNum: number) => void;
-  onToggleDayColumn: (dayIndex: number, weekNum: number) => void;
-  onRemoveRow: (stationId: number, daypartId: string | null) => void;
-  getScheduleForRow: (stationId: number, daypartId: string | null, weekNum: number) => StationSchedule | undefined;
-}) {
-  const [expandedStation, setExpandedStation] = useState<number | null>(null);
-
-  const isDayColumnAllActive = (dayIndex: number) => {
-    return rows.every(row => {
-      const sched = getScheduleForRow(row.station.id, row.daypartId, selectedWeek);
-      return sched?.days_of_week.includes(dayIndex);
-    });
-  };
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full">
-        <thead>
-          <tr>
-            <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide pb-3 pr-4 w-56">Station</th>
-            {DAY_NAMES.map((day, idx) => {
-              const dayIndex = DAY_INDICES[idx];
-              const allActive = isDayColumnAllActive(dayIndex);
-              return (
-                <th key={day} className="text-center pb-3 w-16">
-                  <div className="flex flex-col items-center gap-1">
-                    <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{day}</span>
-                    {rows.length > 0 && (
-                      <button
-                        onClick={() => onToggleDayColumn(dayIndex, selectedWeek)}
-                        className={`text-[9px] px-1.5 py-0.5 rounded font-medium transition-colors ${
-                          allActive
-                            ? 'bg-slate-200 text-slate-500 hover:bg-slate-300'
-                            : 'bg-blue-50 text-blue-500 hover:bg-blue-100'
-                        }`}
-                      >
-                        {allActive ? 'Clear' : 'All'}
-                      </button>
-                    )}
-                  </div>
-                </th>
-              );
-            })}
-            <th className="w-10"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(row => {
-            const sched = getScheduleForRow(row.station.id, row.daypartId, selectedWeek);
-            const activeDays = sched?.days_of_week || [];
-            const dpDef = row.daypartId ? daypartDefs.find(d => d.id === row.daypartId) : null;
-            const isExpanded = expandedStation === row.station.id;
-            const stationRows = rows.filter(r => r.station.id === row.station.id);
-            const isFirstRowOfStation = stationRows[0]?.daypartId === row.daypartId;
-
-            return (
-              <tr
-                key={`${row.station.id}-${row.daypartId || 'all'}`}
-                className="border-t border-slate-100 group/row hover:bg-slate-50/50 transition-colors"
-              >
-                <td className="py-3 pr-4">
-                  <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: brandColor }}>
-                      {row.station.name.charAt(0)}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-slate-800 truncate">{row.station.name}</p>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        {dpDef ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500">
-                            {DAYPART_ICONS[dpDef.daypart_name]} {dpDef.display_label}
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-slate-400">All Dayparts</span>
-                        )}
-                        {isFirstRowOfStation && stationRows.length > 1 && (
-                          <button
-                            onClick={() => setExpandedStation(isExpanded ? null : row.station.id)}
-                            className="text-[10px] text-[#00adf0] hover:text-[#0099d6] font-medium ml-1"
-                          >
-                            {isExpanded ? 'Collapse' : `${stationRows.length} dayparts`}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </td>
-                {DAY_INDICES.map((dayIndex, colIdx) => {
-                  const isActive = activeDays.includes(dayIndex);
-                  return (
-                    <td key={colIdx} className="py-3">
-                      <div className="flex justify-center">
-                        <button
-                          onClick={() => onToggleDay(row.station.id, row.daypartId, dayIndex, selectedWeek)}
-                          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all border-2 ${
-                            isActive
-                              ? 'text-white border-transparent shadow-sm hover:opacity-80'
-                              : 'border-slate-200 bg-white text-slate-300 hover:border-slate-300 hover:text-slate-400'
-                          }`}
-                          style={isActive ? { backgroundColor: brandColor, borderColor: brandColor } : undefined}
-                          disabled={saving}
-                          title={isActive ? `Active on ${DAY_NAMES[colIdx]}` : `Enable on ${DAY_NAMES[colIdx]}`}
-                        >
-                          {isActive ? <Check className="w-3.5 h-3.5" /> : <span className="text-[10px]">{DAY_LABELS[colIdx]}</span>}
-                        </button>
-                      </div>
-                    </td>
-                  );
-                })}
-                <td className="py-3">
-                  <button
-                    onClick={() => onRemoveRow(row.station.id, row.daypartId)}
-                    className="p-1 opacity-0 group-hover/row:opacity-100 hover:bg-red-50 rounded transition-all"
-                    title="Remove station"
-                  >
-                    <Trash2 className="w-3.5 h-3.5 text-red-400" />
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-
-      {/* Per-station daypart quick-toggle panel */}
-      {rows.length > 0 && daypartDefs.length > 0 && (
-        <div className="mt-4 pt-4 border-t border-slate-100">
-          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">Quick toggle: enable a single daypart for a day</p>
-          <div className="flex flex-wrap gap-2">
-            {Array.from(new Set(rows.map(r => r.station.id))).map(stationId => {
-              const station = rows.find(r => r.station.id === stationId)?.station;
-              if (!station) return null;
-              return daypartDefs.map(dp => {
-                const hasRow = rows.some(r => r.station.id === stationId && r.daypartId === dp.id);
-                if (!hasRow) return null;
-                return (
-                  <div key={`${stationId}-${dp.id}`} className="flex items-center gap-1 px-2 py-1 bg-slate-50 rounded-lg">
-                    {DAYPART_ICONS[dp.daypart_name]}
-                    <span className="text-[10px] text-slate-500">{station.name} - {dp.display_label}</span>
-                  </div>
-                );
-              });
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ─── Timeline Overview View ─── */
-
-function TimelineView({ rows, cycleWeeks, cycleDuration, cycleSettings, brandColor, daypartDefs, getScheduleForRow, getWeekLabel, currentWeek, onJumpToWeek }: {
-  rows: ScheduleRow[];
-  cycleWeeks: number[];
-  cycleDuration: number;
-  cycleSettings: CycleSettings | null;
-  brandColor: string;
-  daypartDefs: DaypartDef[];
-  getScheduleForRow: (stationId: number, daypartId: string | null, weekNum: number) => StationSchedule | undefined;
-  getWeekLabel: (weekNum: number) => string;
-  currentWeek: number | null;
-  onJumpToWeek: (week: number) => void;
-}) {
-  const [zoom, setZoom] = useState<'month' | 'quarter' | 'cycle'>('month');
-  const [scrollOffset, setScrollOffset] = useState(0);
-
-  const weeksPerView = zoom === 'month' ? 4 : zoom === 'quarter' ? 12 : cycleWeeks.length;
-  const visibleWeeks = useMemo(() => {
-    const start = Math.min(scrollOffset, Math.max(0, cycleWeeks.length - weeksPerView));
-    return cycleWeeks.slice(start, start + weeksPerView);
-  }, [scrollOffset, cycleWeeks, weeksPerView]);
-
-  const maxScroll = Math.max(0, cycleWeeks.length - weeksPerView);
-  const canScrollLeft = scrollOffset > 0;
-  const canScrollRight = scrollOffset < maxScroll;
-
-  if (rows.length === 0) return null;
-
-  const todayJsDay = new Date().getDay();
-  const todayDate = new Date();
-  todayDate.setHours(0, 0, 0, 0);
-
-  // For each visible week, compute its real date range
-  const weekData = visibleWeeks.map(w => {
-    const weekStart = cycleSettings?.starting_week_date
-      ? getWeekStartDate(w, cycleSettings.starting_week_date)
-      : null;
-    const weekEnd = weekStart && cycleSettings?.starting_week_date ? getWeekEndDate(w, cycleSettings.starting_week_date) : null;
-    const isCurrent = currentWeek === w;
-    const monthLabel = weekStart
-      ? weekStart.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-      : '';
-    return { weekNum: w, weekStart, weekEnd, isCurrent, monthLabel };
-  });
-
-  // Group weeks into month sections for headers
-  const monthGroups: { label: string; weeks: typeof weekData }[] = [];
-  for (const wd of weekData) {
-    const lastGroup = monthGroups[monthGroups.length - 1];
-    if (lastGroup && lastGroup.label === wd.monthLabel) {
-      lastGroup.weeks.push(wd);
-    } else {
-      monthGroups.push({ label: wd.monthLabel, weeks: [wd] });
-    }
-  }
-
-  const scrollLeft = () => setScrollOffset(Math.max(0, scrollOffset - weeksPerView));
-  const scrollRight = () => setScrollOffset(Math.min(maxScroll, scrollOffset + weeksPerView));
-
-  return (
-    <div>
-      {/* Controls bar */}
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Range:</span>
-          <div className="flex items-center bg-slate-100 rounded-lg p-0.5">
-            {(['month', 'quarter', 'cycle'] as const).map(z => {
-              const disabled = z === 'month' && cycleDuration < 4;
-              return (
-                <button
-                  key={z}
-                  onClick={() => { setZoom(z); setScrollOffset(0); }}
-                  disabled={disabled}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
-                    zoom === z
-                      ? 'bg-white text-slate-900 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700'
-                  } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
-                >
-                  {z === 'month' ? '1 Month' : z === 'quarter' ? '1 Quarter' : 'Full Cycle'}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {currentWeek && (
-            <button
-              onClick={() => {
-                const target = Math.max(0, Math.min(maxScroll, (currentWeek - 1) - Math.floor(weeksPerView / 2)));
-                setScrollOffset(target);
-              }}
-              className="text-xs text-[#00adf0] hover:text-[#0099d6] font-medium flex items-center gap-1"
-            >
-              Jump to current week <ArrowRight className="w-3 h-3" />
-            </button>
-          )}
-          {zoom !== 'cycle' && cycleWeeks.length > weeksPerView && (
-            <div className="flex items-center gap-1">
+      {/* Confirm Delete */}
+      {confirmDelete && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+            <h3 className="text-base font-bold text-slate-900 mb-2">Delete Schedule Group?</h3>
+            <p className="text-sm text-slate-500 mb-5">
+              This will permanently remove "{groupLabel}" and all its station assignments. This cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setConfirmDelete(false)} className="px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 rounded-lg">Cancel</button>
               <button
-                onClick={scrollLeft}
-                disabled={!canScrollLeft}
-                className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                onClick={() => { setConfirmDelete(false); onDeleteGroup(); }}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-500 hover:bg-red-600 rounded-lg"
               >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <span className="text-[10px] text-slate-400 px-1">
-                {scrollOffset + 1}-{Math.min(scrollOffset + weeksPerView, cycleWeeks.length)} of {cycleWeeks.length}
-              </span>
-              <button
-                onClick={scrollRight}
-                disabled={!canScrollRight}
-                className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              >
-                <ChevronRight className="w-4 h-4" />
+                Delete
               </button>
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* Calendar-style grid */}
-      <div className="overflow-x-auto border border-slate-200 rounded-xl">
-        <table className="w-full border-collapse">
-          {/* Month header row */}
-          <thead>
-            <tr className="bg-slate-50">
-              <th className="text-left px-3 py-2 text-xs font-bold text-slate-600 uppercase tracking-wide sticky left-0 bg-slate-50 z-10 min-w-[180px] border-r border-slate-200">
-                Station
-              </th>
-              {monthGroups.map((mg, mgIdx) => (
-                <th
-                  key={mgIdx}
-                  colSpan={mg.weeks.length * 7}
-                  className="text-center px-2 py-2 text-xs font-bold text-slate-700 border-l border-slate-200 first:border-l-0"
-                >
-                  {mg.label}
-                </th>
-              ))}
-            </tr>
-            {/* Week header row */}
-            <tr className="border-b border-slate-200">
-              <th className="sticky left-0 bg-white z-10 border-r border-slate-200"></th>
-              {weekData.map(({ weekNum, weekStart, isCurrent }) => (
-                <th
-                  key={weekNum}
-                  colSpan={7}
-                  className={`text-center px-1 py-2 border-l border-slate-200 first:border-l-0 cursor-pointer hover:bg-blue-50 transition-colors group ${isCurrent ? 'bg-blue-50' : ''}`}
-                  onClick={() => onJumpToWeek(weekNum)}
-                >
-                  <div className="flex items-center justify-center gap-1.5">
-                    <span className={`text-[11px] font-semibold ${isCurrent ? 'text-blue-700' : 'text-slate-600'}`}>
-                      {getWeekLabel(weekNum)}
-                    </span>
-                    {isCurrent && (
-                      <span className="text-[8px] px-1 py-0 bg-blue-600 text-white rounded-full font-bold">NOW</span>
-                    )}
-                  </div>
-                  {weekStart && (
-                    <div className={`text-[9px] mt-0.5 ${isCurrent ? 'text-blue-500' : 'text-slate-400'}`}>
-                      {formatShortDate(weekStart)}
-                    </div>
-                  )}
-                  <div className="text-[8px] text-slate-300 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                    Click to edit
-                  </div>
-                </th>
-              ))}
-            </tr>
-            {/* Day-of-week header row */}
-            <tr className="border-b border-slate-200">
-              <th className="sticky left-0 bg-white z-10 border-r border-slate-200"></th>
-              {weekData.map(({ weekNum }) =>
-                DAY_LABELS.map((label, dayIdx) => {
-                  const dayIndex = DAY_INDICES[dayIdx];
-                  const isTodayCol = currentWeek === weekNum && todayJsDay === dayIndex;
-                  return (
-                    <th
-                      key={`${weekNum}-${dayIdx}`}
-                      className={`text-center py-1 text-[9px] font-medium w-8 ${isTodayCol ? 'text-blue-600 bg-blue-50' : 'text-slate-400'} ${dayIdx === 0 ? 'border-l border-slate-200' : ''}`}
-                    >
-                      {label}
-                    </th>
-                  );
-                })
-              )}
-            </tr>
-          </thead>
-
-          <tbody>
-            {rows.map(row => {
-              const dpDef = row.daypartId ? daypartDefs.find(d => d.id === row.daypartId) : null;
-              return (
-                <tr key={`${row.station.id}-${row.daypartId || 'all'}`} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/30">
-                  <td className="px-3 py-2.5 sticky left-0 bg-white z-10 border-r border-slate-200 min-w-[180px]">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded flex items-center justify-center text-white text-[10px] font-bold shrink-0" style={{ backgroundColor: brandColor }}>
-                        {row.station.name.charAt(0)}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-slate-800 truncate leading-tight">{row.station.name}</p>
-                        <p className="text-[9px] text-slate-400 leading-tight">{dpDef ? dpDef.display_label : 'All Dayparts'}</p>
-                      </div>
-                    </div>
-                  </td>
-                  {weekData.map(({ weekNum, weekStart }) => {
-                    const sched = getScheduleForRow(row.station.id, row.daypartId, weekNum);
-                    const activeDays = sched?.days_of_week || [];
-                    return DAY_INDICES.map((dayIndex, colIdx) => {
-                      const isActive = activeDays.includes(dayIndex);
-                      const isToday = currentWeek === weekNum && todayJsDay === dayIndex;
-                      // Compute the actual date for this cell
-                      let dateLabel = '';
-                      if (weekStart) {
-                        const cellDate = new Date(weekStart);
-                        cellDate.setDate(cellDate.getDate() + colIdx);
-                        dateLabel = String(cellDate.getDate());
-                      }
-                      return (
-                        <td
-                          key={`${weekNum}-${colIdx}`}
-                          className={`text-center py-1.5 ${colIdx === 0 ? 'border-l border-slate-100' : ''} ${isToday ? 'bg-blue-50' : ''}`}
-                          title={isActive ? `${row.station.name} active on ${DAY_NAMES[colIdx]}` : `${row.station.name} inactive on ${DAY_NAMES[colIdx]}`}
-                        >
-                          <div className="flex flex-col items-center gap-0.5">
-                            {dateLabel && (
-                              <span className={`text-[8px] leading-none ${isActive ? 'text-slate-300' : 'text-slate-200'}`}>
-                                {dateLabel}
-                              </span>
-                            )}
-                            <div
-                              className={`w-5 h-5 rounded-md transition-all ${isActive ? 'shadow-sm' : ''}`}
-                              style={isActive ? { backgroundColor: brandColor } : { backgroundColor: '#f1f5f9' }}
-                            />
-                          </div>
-                        </td>
-                      );
-                    });
-                  })}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Footer with legend and stats */}
-      <div className="mt-4 flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-4 text-[10px] text-slate-400">
-          <div className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded-md" style={{ backgroundColor: brandColor }} />
-            <span>Active</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded-md bg-slate-200" />
-            <span>Inactive</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded-md bg-blue-50 border border-blue-200" />
-            <span>Today</span>
           </div>
         </div>
-        <span className="text-[10px] text-slate-400">Click any week header to jump to its detail editor</span>
-      </div>
+      )}
     </div>
   );
 }
 
 /* ─── Add Station Modal ─── */
 
-function AddStationModal({ allStations, existingRows, daypartDefs, saving, onAdd, onClose }: {
+function AddStationModal({ allStations, existingEntries, daypartDefs, saving, onAdd, onClose }: {
   allStations: Station[];
-  existingRows: ScheduleRow[];
+  existingEntries: GroupEntry[];
   daypartDefs: DaypartDef[];
   saving: boolean;
   onAdd: (stationId: number, daypartId: string | null) => void;
@@ -1346,13 +889,8 @@ function AddStationModal({ allStations, existingRows, daypartDefs, saving, onAdd
     ? allStations.filter(s => s.name.toLowerCase().includes(search.toLowerCase()))
     : allStations;
 
-  const handleAdd = () => {
-    if (!selectedStation) return;
-    onAdd(selectedStation, selectedDaypart === 'all' ? null : selectedDaypart);
-  };
-
   const isAlreadyAdded = (stationId: number, dpId: string | null) => {
-    return existingRows.some(r => r.station.id === stationId && r.daypartId === dpId);
+    return existingEntries.some(e => e.station_id === stationId && e.daypart_id === dpId);
   };
 
   return (
@@ -1361,16 +899,17 @@ function AddStationModal({ allStations, existingRows, daypartDefs, saving, onAdd
         <div className="flex items-center justify-between p-5 border-b border-slate-200">
           <div>
             <h2 className="text-base font-bold text-slate-900">Add Station</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Pick a station and daypart for this brand</p>
+            <p className="text-xs text-slate-500 mt-0.5">Pick a station for this schedule group</p>
           </div>
           <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg"><X className="w-5 h-5 text-slate-500" /></button>
         </div>
-
         <div className="p-5 space-y-4 flex-1 overflow-y-auto">
-          <div className="relative">
-            <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search stations..." className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" autoFocus />
-          </div>
-
+          <input
+            type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search stations..."
+            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            autoFocus
+          />
           <div className="space-y-1 max-h-48 overflow-y-auto">
             {filtered.length === 0 ? (
               <p className="text-sm text-slate-400 text-center py-4">No stations found</p>
@@ -1381,21 +920,20 @@ function AddStationModal({ allStations, existingRows, daypartDefs, saving, onAdd
                     selectedStation === station.id ? 'bg-blue-50 border border-blue-200' : 'hover:bg-slate-50 border border-transparent'
                   }`}
                 >
-                  <div className="w-7 h-7 rounded-lg bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-bold shrink-0">{station.name.charAt(0)}</div>
+                  <div className="w-7 h-7 rounded-lg bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-bold shrink-0">
+                    {station.name.charAt(0)}
+                  </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-slate-800 truncate">{station.name}</p>
-                    <p className="text-[10px] text-slate-400">{station.uses_cycle ? 'Cycle' : 'Static'}</p>
                   </div>
                   {selectedStation === station.id && <Check className="w-4 h-4 text-[#00adf0] shrink-0" />}
                 </button>
               ))
             )}
           </div>
-
-          {selectedStation && (
+          {selectedStation && daypartDefs.length > 0 && (
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-2">Daypart Assignment</label>
-              <p className="text-[10px] text-slate-400 mb-2">Choose "All Dayparts" for full-day coverage, or pick a specific daypart to limit when this brand appears.</p>
+              <label className="block text-xs font-medium text-slate-600 mb-2">Daypart</label>
               <div className="flex flex-wrap gap-2">
                 <button onClick={() => setSelectedDaypart('all')}
                   className={`px-3 py-2 text-xs font-medium rounded-lg border transition-all ${
@@ -1419,11 +957,16 @@ function AddStationModal({ allStations, existingRows, daypartDefs, saving, onAdd
             </div>
           )}
         </div>
-
         <div className="flex justify-end gap-3 p-5 border-t border-slate-200">
           <button onClick={onClose} className="px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 rounded-lg transition-colors">Cancel</button>
-          <button onClick={handleAdd} disabled={!selectedStation || saving || isAlreadyAdded(selectedStation, selectedDaypart === 'all' ? null : selectedDaypart)}
-            className="px-4 py-2 text-sm font-medium text-white bg-[#00adf0] rounded-lg hover:bg-[#0099d6] disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+          <button
+            onClick={() => {
+              if (!selectedStation) return;
+              onAdd(selectedStation, selectedDaypart === 'all' ? null : selectedDaypart);
+            }}
+            disabled={!selectedStation || saving || (selectedStation ? isAlreadyAdded(selectedStation, selectedDaypart === 'all' ? null : selectedDaypart) : true)}
+            className="px-4 py-2 text-sm font-medium text-white bg-[#00adf0] rounded-lg hover:bg-[#0099d6] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
             {saving ? 'Adding...' : 'Add Station'}
           </button>
         </div>
@@ -1432,213 +975,130 @@ function AddStationModal({ allStations, existingRows, daypartDefs, saving, onAdd
   );
 }
 
-/* ─── Cycle Setup Modal ─── */
+/* ─── Group Form Modal ─── */
 
-function CycleSetupModal({ existing, saving, onSave, onClose }: {
-  existing: CycleSettings | null;
+function GroupFormModal({ existing, hasBase, saving, onSave, onClose }: {
+  existing: ScheduleGroup | null;
+  hasBase: boolean;
   saving: boolean;
-  onSave: (name: string, startDate: string, endDate: string, duration: number, mode: RecurrenceMode) => void;
+  onSave: (name: string, startDate: string, endDate: string | null, recurrenceWeeks: number | null, isBase: boolean) => void;
   onClose: () => void;
 }) {
-  const today = new Date().toISOString().split('T')[0];
-  const [name, setName] = useState(existing?.cycle_name || '');
-  const [startDate, setStartDate] = useState(existing?.starting_week_date || today);
+  const today = formatDateISO(getMondayOfWeek(new Date()));
+  const [name, setName] = useState(existing?.name || '');
+  const [startDate, setStartDate] = useState(existing?.start_date || today);
   const [endDate, setEndDate] = useState(existing?.end_date || '');
-  const [duration, setDuration] = useState(existing?.cycle_duration_weeks || 4);
-  const [mode, setMode] = useState<RecurrenceMode>(existing?.recurrence_mode || 'repeating');
 
-  const isFuture = (() => {
-    const s = new Date(startDate + 'T00:00:00');
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    s.setHours(0, 0, 0, 0);
-    return s > now;
-  })();
+  const [recurrenceWeeks, setRecurrenceWeeks] = useState<string>(
+    existing?.recurrence_weeks ? String(existing.recurrence_weeks) : ''
+  );
+  const [scheduleType, setScheduleType] = useState<'base' | 'recurring' | 'one-time'>(
+    existing?.is_base ? 'base' : existing?.recurrence_weeks ? 'recurring' : 'one-time'
+  );
 
-  const endDateError = mode === 'ending' && endDate && new Date(endDate) <= new Date(startDate) ? 'End date must be after start date' : '';
+  const handleSave = () => {
+    const isBaseVal = scheduleType === 'base';
+    const recurrence = scheduleType === 'recurring' && recurrenceWeeks ? parseInt(recurrenceWeeks) : null;
+    const endVal = scheduleType !== 'base' && endDate ? endDate : null;
+    onSave(name, startDate, endVal, recurrence, isBaseVal);
+  };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-5 border-b border-slate-200 sticky top-0 bg-white z-10">
-          <h2 className="text-base font-bold text-slate-900">{existing ? 'Edit Cycle Settings' : 'Set Up Cycle'}</h2>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between p-5 border-b border-slate-200">
+          <h2 className="text-base font-bold text-slate-900">
+            {existing ? 'Edit Schedule Group' : 'New Schedule Group'}
+          </h2>
           <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg"><X className="w-5 h-5 text-slate-500" /></button>
         </div>
-
         <div className="p-5 space-y-4">
-          {/* Recurrence mode selector */}
+          {/* Name */}
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-2">Recurrence Mode</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Name (optional)</label>
+            <input
+              type="text" value={name} onChange={e => setName(e.target.value)}
+              placeholder="e.g. Q1 Menu, Summer Rotation"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            />
+          </div>
+
+          {/* Schedule Type */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-2">Type</label>
             <div className="space-y-2">
               {([
-                { value: 'repeating' as const, icon: <InfinityIcon className="w-4 h-4" />, label: 'Repeats indefinitely', desc: 'Cycle loops through all weeks forever' },
-                { value: 'ending' as const, icon: <CalendarClock className="w-4 h-4" />, label: 'Ends on a date', desc: 'Cycle repeats but stops after a specific date' },
-                { value: 'static' as const, icon: <CircleDot className="w-4 h-4" />, label: 'Static / continuous', desc: 'Same schedule every week, no rotation' },
+                { value: 'base' as const, label: 'Base / Default', desc: 'Runs every week unless overridden by another group', disabled: hasBase && !existing?.is_base },
+                { value: 'recurring' as const, label: 'Recurring', desc: 'Repeats on an interval (e.g. every 4 weeks)', disabled: false },
+                { value: 'one-time' as const, label: 'One-time / Seasonal', desc: 'Runs for a specific date range only (e.g. Q1 menu)', disabled: false },
               ]).map(opt => (
                 <button
                   key={opt.value}
-                  onClick={() => setMode(opt.value)}
+                  onClick={() => { setScheduleType(opt.value); }}
+                  disabled={opt.disabled}
                   className={`w-full flex items-start gap-3 p-3 rounded-lg border text-left transition-all ${
-                    mode === opt.value
+                    scheduleType === opt.value
                       ? 'bg-blue-50 border-blue-300'
-                      : 'border-slate-200 hover:border-slate-300'
+                      : opt.disabled ? 'border-slate-100 opacity-40' : 'border-slate-200 hover:border-slate-300'
                   }`}
                 >
-                  <div className={`mt-0.5 ${mode === opt.value ? 'text-[#00adf0]' : 'text-slate-400'}`}>{opt.icon}</div>
+                  <div className={`w-4 h-4 rounded-full border-2 mt-0.5 shrink-0 ${
+                    scheduleType === opt.value ? 'border-blue-500 bg-blue-500' : 'border-slate-300'
+                  }`}>
+                    {scheduleType === opt.value && <div className="w-1.5 h-1.5 bg-white rounded-full m-auto mt-[3px]" />}
+                  </div>
                   <div>
-                    <p className={`text-sm font-medium ${mode === opt.value ? 'text-blue-700' : 'text-slate-700'}`}>{opt.label}</p>
-                    <p className="text-[10px] text-slate-400 mt-0.5">{opt.desc}</p>
+                    <p className="text-xs font-semibold text-slate-800">{opt.label}</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">{opt.desc}</p>
                   </div>
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Cycle name */}
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1.5">Cycle Name</label>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Q1 2026" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" autoFocus />
-            <p className="text-[10px] text-slate-400 mt-1">Weeks will display as "{name || 'Cycle'} Week 1", "{name || 'Cycle'} Week 2", etc.</p>
-          </div>
-
-          {/* Duration (hidden for static) */}
-          {mode !== 'static' && (
+          {/* Start date (not for base) */}
+          {scheduleType !== 'base' && (
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">Cycle Duration (weeks)</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  min={1}
-                  max={52}
-                  value={duration}
-                  onChange={(e) => setDuration(Math.max(1, Math.min(52, parseInt(e.target.value) || 1)))}
-                  className="w-20 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                />
-                <span className="text-xs text-slate-400">weeks per cycle</span>
-                <div className="flex gap-1 ml-auto">
-                  {[2, 4, 8, 12].map(preset => (
-                    <button
-                      key={preset}
-                      onClick={() => setDuration(preset)}
-                      className={`px-2 py-1 text-[10px] rounded font-medium transition-colors ${duration === preset ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
-                    >
-                      {preset}w
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Start Date</label>
+              <input
+                type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              />
             </div>
           )}
 
-          {/* Start date */}
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1.5">Start Date</label>
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
-            {isFuture && (
-              <p className="text-[10px] text-amber-600 mt-1 flex items-center gap-1">
-                <Info className="w-3 h-3" /> This cycle will start in the future. Until then, no schedule is active.
-              </p>
-            )}
-          </div>
-
-          {/* End date (only for ending mode) */}
-          {mode === 'ending' && (
+          {/* End date (for one-time / recurring) */}
+          {scheduleType !== 'base' && (
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">End Date</label>
-              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
-              {endDateError && <p className="text-[10px] text-red-500 mt-1">{endDateError}</p>}
-              {!endDateError && <p className="text-[10px] text-slate-400 mt-1">The cycle stops repeating after this date.</p>}
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">End Date {scheduleType === 'recurring' ? '(optional)' : ''}</label>
+              <input
+                type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              />
+              <p className="text-[10px] text-slate-400 mt-1">Leave empty for indefinite</p>
             </div>
           )}
 
-          {/* Summary */}
-          <div className="p-3 bg-slate-50 rounded-lg">
-            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Summary</p>
-            <p className="text-xs text-slate-600">
-              {mode === 'static'
-                ? `Same schedule every week${startDate ? ` starting ${formatShortDate(new Date(startDate + 'T00:00:00'))}` : ''}`
-                : `${duration}-week cycle${name ? ` "${name}"` : ''}${startDate ? ` starting ${formatShortDate(new Date(startDate + 'T00:00:00'))}` : ''}${mode === 'ending' && endDate ? ` ending ${formatShortDate(new Date(endDate + 'T00:00:00'))}` : ''}${mode === 'repeating' ? ' repeating indefinitely' : ''}`}
-            </p>
-          </div>
+          {/* Recurrence interval */}
+          {scheduleType === 'recurring' && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Repeat Every (weeks)</label>
+              <input
+                type="number" min="1" max="52" value={recurrenceWeeks} onChange={e => setRecurrenceWeeks(e.target.value)}
+                placeholder="e.g. 4"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              />
+            </div>
+          )}
         </div>
-
-        <div className="flex justify-end gap-3 p-5 border-t border-slate-200 sticky bottom-0 bg-white">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 rounded-lg transition-colors">Cancel</button>
+        <div className="flex justify-end gap-3 p-5 border-t border-slate-200">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 rounded-lg">Cancel</button>
           <button
-            onClick={() => onSave(name, startDate, endDate, mode === 'static' ? 1 : duration, mode)}
-            disabled={!startDate || saving || !!endDateError}
+            onClick={handleSave}
+            disabled={saving || (scheduleType === 'recurring' && !recurrenceWeeks)}
             className="px-4 py-2 text-sm font-medium text-white bg-[#00adf0] rounded-lg hover:bg-[#0099d6] disabled:opacity-50 transition-colors"
           >
-            {saving ? 'Saving...' : 'Save'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ─── Copy To Picker Modal ─── */
-
-function CopyToPickerModal({ sourceWeek, cycleWeeks, cycleSettings, getWeekLabel, onSelect, onClose }: {
-  sourceWeek: number;
-  cycleWeeks: number[];
-  cycleSettings: CycleSettings | null;
-  getWeekLabel: (weekNum: number) => string;
-  onSelect: (targetWeek: number) => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
-        <div className="flex items-center justify-between p-5 border-b border-slate-200">
-          <div>
-            <h2 className="text-base font-bold text-slate-900">Copy Week {sourceWeek} to...</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Select a target week to overwrite</p>
-          </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg"><X className="w-5 h-5 text-slate-500" /></button>
-        </div>
-        <div className="p-3 max-h-80 overflow-y-auto space-y-1">
-          {cycleWeeks.map(w => (
-            <button
-              key={w}
-              onClick={() => onSelect(w)}
-              className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 transition-colors text-left"
-            >
-              <div>
-                <p className="text-sm font-medium text-slate-800">{getWeekLabel(w)}</p>
-                {cycleSettings?.starting_week_date && (
-                  <p className="text-[10px] text-slate-400">{formatWeekRange(w, cycleSettings.starting_week_date)}</p>
-                )}
-              </div>
-              <ArrowRight className="w-4 h-4 text-slate-300" />
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ─── Confirm Dialog ─── */
-
-function ConfirmDialog({ title, message, confirmLabel, onConfirm, onCancel }: {
-  title: string;
-  message: string;
-  confirmLabel: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
-        <div className="p-5">
-          <h2 className="text-base font-bold text-slate-900 mb-2">{title}</h2>
-          <p className="text-sm text-slate-500">{message}</p>
-        </div>
-        <div className="flex justify-end gap-3 px-5 py-4 border-t border-slate-200">
-          <button onClick={onCancel} className="px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 rounded-lg transition-colors">Cancel</button>
-          <button onClick={onConfirm} className="px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors">
-            {confirmLabel}
+            {saving ? 'Saving...' : existing ? 'Update' : 'Create'}
           </button>
         </div>
       </div>
