@@ -565,7 +565,7 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
     }).select().maybeSingle();
     if (data) {
       setEntries(prev => [...prev, data as GroupEntry]);
-      showToast('Station added');
+      showToast('Daypart added');
     }
     setShowAddStation(false);
     setSaving(false);
@@ -1050,12 +1050,12 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
       <div className="p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-bold text-slate-800">
-            {viewMode === 'template' ? 'Template Stations & Days' : 'Stations & Days'}
+            {viewMode === 'template' ? 'Template Dayparts & Days' : 'Dayparts & Days'}
           </h3>
           {!isReadOnly && (
             <button onClick={handleAddStation}
               className="px-3 py-1.5 text-xs font-medium text-white bg-[#00adf0] hover:bg-[#0099d6] rounded-lg transition-colors flex items-center gap-1.5">
-              <Plus className="w-3.5 h-3.5" /> Add Station
+              <Plus className="w-3.5 h-3.5" /> Add Daypart
             </button>
           )}
         </div>
@@ -1064,20 +1064,20 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
           <div className="text-center py-10">
             <CalendarDays className="w-10 h-10 mx-auto mb-3 text-slate-300" />
             <p className="text-sm font-medium text-slate-600 mb-1">
-              {viewMode === 'template' ? 'No stations in template yet' : 'No stations this week'}
+              {viewMode === 'template' ? 'No dayparts in template yet' : 'No dayparts this week'}
             </p>
             <p className="text-xs text-slate-400 mb-5 max-w-xs mx-auto">
               {viewMode === 'template'
-                ? 'Add stations to your template. Every week without its own schedule will use these.'
+                ? 'Add dayparts to your template. Every week without its own schedule will use these.'
                 : isReadOnly
-                  ? 'The template is empty. Add stations to the template or customize this week.'
-                  : 'Add a station to get started.'}
+                  ? 'The template is empty. Add dayparts to the template or customize this week.'
+                  : 'Add a daypart to get started.'}
             </p>
             <div className="flex items-center justify-center gap-2">
               {!isReadOnly && (
                 <button onClick={handleAddStation}
                   className="px-4 py-2 text-sm font-medium text-white bg-[#00adf0] hover:bg-[#0099d6] rounded-lg transition-colors inline-flex items-center gap-2">
-                  <Plus className="w-4 h-4" /> Add Station
+                  <Plus className="w-4 h-4" /> Add Daypart
                 </button>
               )}
               {isReadOnly && (
@@ -1371,7 +1371,7 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
   );
 }
 
-/* ─── Add Station Modal ─── */
+/* ─── Add Daypart Modal ─── */
 
 function AddStationModal({ allStations, existingEntries, daypartDefs, saving, onAdd, onClose }: {
   allStations: Station[];
@@ -1397,15 +1397,15 @@ function AddStationModal({ allStations, existingEntries, daypartDefs, saving, on
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between p-5 border-b border-slate-200">
           <div>
-            <h2 className="text-base font-bold text-slate-900">Add Station</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Pick a station and choose which dayparts it covers</p>
+            <h2 className="text-base font-bold text-slate-900">Add Daypart</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Pick a daypart, then choose which station to assign</p>
           </div>
           <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg"><X className="w-5 h-5 text-slate-500" /></button>
         </div>
         <div className="p-5 space-y-4 flex-1 overflow-y-auto">
           {daypartDefs.length > 0 && (
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-2">1. Which dayparts?</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-2">1. Which daypart?</label>
               <div className="flex flex-wrap gap-2">
                 <button onClick={() => setSelectedDaypart('all')}
                   className={`px-3 py-2.5 text-xs font-medium rounded-lg border transition-all ${
@@ -1426,7 +1426,7 @@ function AddStationModal({ allStations, existingEntries, daypartDefs, saving, on
           )}
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-2">
-              {daypartDefs.length > 0 ? '2. Pick a station' : 'Pick a station'}
+              {daypartDefs.length > 0 ? '2. Pick a station' : 'Pick a station to assign'}
             </label>
             <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
               placeholder="Search stations..."
@@ -1470,7 +1470,7 @@ function AddStationModal({ allStations, existingEntries, daypartDefs, saving, on
             }}
             disabled={!selectedStation || saving}
             className="px-4 py-2 text-sm font-medium text-white bg-[#00adf0] rounded-lg hover:bg-[#0099d6] disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-            {saving ? 'Adding...' : 'Add Station'}
+            {saving ? 'Adding...' : 'Add Daypart'}
           </button>
         </div>
       </div>
