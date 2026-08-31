@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, Plus, Calendar, ChevronLeft, ChevronRight, Settings, Trash2, CreditCard as Edit2, MapPin, Inbox } from 'lucide-react';
+import { ArrowLeft, Plus, Calendar, Trash2, MapPin } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import StationCombobox, { StationSuggestion } from '../components/StationCombobox';
 
 interface StationSchedulingProps {
   storeId: number;
@@ -54,7 +53,6 @@ export default function StationScheduling({ storeId, storeName, onBack }: Statio
   const [activeWeek, setActiveWeek] = useState(1);
   const [showAssignBrand, setShowAssignBrand] = useState<{ stationId: number; day: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [comboboxSuggestions, setComboboxSuggestions] = useState<StationSuggestion[]>([]);
 
   useEffect(() => {
     loadAllData();
@@ -80,59 +78,7 @@ export default function StationScheduling({ storeId, storeName, onBack }: Statio
     if (schedulesRes.data) setSchedules(schedulesRes.data as StationSchedule[]);
     if (cycleRes.data) setCycleSettings(cycleRes.data as CycleSettings);
 
-    const existingStationNames = (stationsRes.data || []).map((s: any) => s.name.toLowerCase());
-    await loadSuggestions(existingStationNames);
-
     setLoading(false);
-  };
-
-  const loadSuggestions = async (existingNamesLower: string[] = []) => {
-    const { data: storeData } = await supabase
-      .from('stores')
-      .select('company_id')
-      .eq('id', storeId)
-      .maybeSingle();
-
-    if (!storeData) return;
-    const companyId = storeData.company_id;
-
-    const { data: companyData } = await supabase
-      .from('companies')
-      .select('concept_id')
-      .eq('id', companyId)
-      .maybeSingle();
-
-    let conceptId: number | null = null;
-    if (companyData?.concept_id) {
-      conceptId = companyData.concept_id;
-    } else {
-      const { data: brandLink } = await supabase
-        .from('company_brands')
-        .select('concept_id')
-        .eq('company_id', companyId)
-        .limit(1)
-        .maybeSingle();
-      conceptId = brandLink?.concept_id || null;
-    }
-
-    const [inheritedRes, feedRes] = await Promise.all([
-      conceptId
-        ? supabase.from('stations').select('id, name').eq('concept_id', conceptId).order('name')
-        : Promise.resolve({ data: [], error: null }),
-      supabase.from('feed_station_names').select('id, name, adopted').eq('store_id', storeId).order('name'),
-    ]);
-
-    const existingNames = existingNamesLower;
-
-    const inheritedSuggestions: StationSuggestion[] = (inheritedRes.data || [])
-      .filter((s: any) => !existingNames.includes(s.name.toLowerCase()))
-      .map((s: any) => ({ id: s.id, name: s.name, source: 'inherited' as const, station_id: s.id }));
-
-    const feedSuggestions: StationSuggestion[] = (feedRes.data || [])
-      .filter((f: any) => !f.adopted && !existingNames.includes(f.name.toLowerCase()))
-      .map((f: any) => ({ id: f.id, name: f.name, source: 'feed' as const }));
-
-    setComboboxSuggestions([...inheritedSuggestions, ...feedSuggestions]);
   };
 
   const cycleDuration = cycleSettings?.cycle_duration_weeks || 1;
@@ -157,52 +103,6 @@ export default function StationScheduling({ storeId, storeName, onBack }: Statio
   const getBrandForSchedule = (schedule: StationSchedule | undefined): Brand | undefined => {
     if (!schedule) return undefined;
     return brands.find(b => b.id === schedule.brand_id);
-  };
-
-  const handleSelectStation = async (name: string, suggestion?: StationSuggestion) => {
-    if (suggestion && suggestion.source === 'inherited' && suggestion.station_id) {
-      const { error: insertError } = await supabase.from('stations').insert({
-        name: suggestion.name,
-        store_id: storeId,
-        concept_id: null,
-        source: 'inherited',
-        sort_order: stations.length,
-        uses_cycle: true,
-      });
-      if (insertError) {
-        setError(insertError.message);
-        return;
-      }
-    } else if (suggestion && suggestion.source === 'feed') {
-      const { error: insertError } = await supabase.from('stations').insert({
-        name: suggestion.name,
-        store_id: storeId,
-        concept_id: null,
-        source: 'feed',
-        sort_order: stations.length,
-        uses_cycle: true,
-      });
-      if (insertError) {
-        setError(insertError.message);
-        return;
-      }
-      await supabase.from('feed_station_names').update({ adopted: true }).eq('id', suggestion.id);
-    } else {
-      const { error: insertError } = await supabase.from('stations').insert({
-        name,
-        store_id: storeId,
-        concept_id: null,
-        source: 'manual',
-        sort_order: stations.length,
-        uses_cycle: true,
-      });
-      if (insertError) {
-        setError(insertError.message);
-        return;
-      }
-    }
-    setError(null);
-    loadAllData();
   };
 
   const handleDeleteStation = async (stationId: number) => {
@@ -331,14 +231,7 @@ export default function StationScheduling({ storeId, storeName, onBack }: Statio
           <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>
         )}
 
-        {/* Add Station */}
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
-          <StationCombobox
-            suggestions={comboboxSuggestions}
-            existingNames={stations.map(s => s.name)}
-            onAccept={handleSelectStation}
-          />
-        </div>
+
 
         {/* Station Grid */}
         {stations.length === 0 ? (
