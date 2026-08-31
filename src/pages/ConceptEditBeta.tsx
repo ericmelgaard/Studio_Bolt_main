@@ -1,5 +1,5 @@
 import { useState, useEffect, FormEvent, useRef } from 'react';
-import { Save, AlertCircle, Info, Palette, Image, Copy, Check, Trash2, Building2, UtensilsCrossed } from 'lucide-react';
+import { Save, AlertCircle, Info, Palette, Image, Copy, Check, Trash2, Building2, UtensilsCrossed, MapPin, Plus, X, GripVertical, Inbox } from 'lucide-react';
 import * as Icons from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Breadcrumb from '../components/Breadcrumb';
@@ -48,6 +48,10 @@ export default function ConceptEditBeta({ conceptId, conceptName, onBack, onSave
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [showMenuManagement, setShowMenuManagement] = useState(false);
+
+  const [conceptStations, setConceptStations] = useState<Array<{ id: number; name: string; sort_order: number }>>([]);
+  const [newStationName, setNewStationName] = useState('');
+  const [stationSaving, setStationSaving] = useState(false);
 
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const originalDataRef = useRef<ConceptData | null>(null);
@@ -124,6 +128,13 @@ export default function ConceptEditBeta({ conceptId, conceptName, onBack, onSave
         setFormData(loadedFormData);
         originalDataRef.current = loadedFormData;
       }
+
+      const { data: stationsData } = await supabase
+        .from('stations')
+        .select('id, name, sort_order')
+        .eq('concept_id', conceptId)
+        .order('sort_order');
+      if (stationsData) setConceptStations(stationsData);
     } else {
       originalDataRef.current = { ...formData };
     }
@@ -229,6 +240,50 @@ export default function ConceptEditBeta({ conceptId, conceptName, onBack, onSave
     }
   };
 
+  const reloadConceptStations = async () => {
+    if (!conceptId) return;
+    const { data } = await supabase
+      .from('stations')
+      .select('id, name, sort_order')
+      .eq('concept_id', conceptId)
+      .order('sort_order');
+    if (data) setConceptStations(data);
+  };
+
+  const handleAddConceptStation = async () => {
+    const name = newStationName.trim();
+    if (!name || !conceptId) return;
+    setStationSaving(true);
+    const { error: insertError } = await supabase.from('stations').insert({
+      name,
+      concept_id: conceptId,
+      source: 'manual',
+      sort_order: conceptStations.length,
+      uses_cycle: true,
+    });
+    if (insertError) {
+      setError(insertError.message);
+    } else {
+      setNewStationName('');
+      await reloadConceptStations();
+    }
+    setStationSaving(false);
+  };
+
+  const handleRemoveConceptStation = async (stationId: number) => {
+    setStationSaving(true);
+    await supabase.from('stations').delete().eq('id', stationId);
+    await reloadConceptStations();
+    setStationSaving(false);
+  };
+
+  const handleRenameConceptStation = async (stationId: number, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    await supabase.from('stations').update({ name: trimmed }).eq('id', stationId);
+    setConceptStations(prev => prev.map(s => s.id === stationId ? { ...s, name: trimmed } : s));
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !showExitConfirm && !showDeleteConfirm && !showIconPicker) {
@@ -285,12 +340,15 @@ export default function ConceptEditBeta({ conceptId, conceptName, onBack, onSave
   };
 
   const getSections = () => {
-    return [
+    const sections = [
       { id: 'basic-info', label: 'Basic Information', icon: Info },
       { id: 'brand-settings', label: 'Brand Settings', icon: Info },
+      { id: 'meal-stations', label: 'Meal Stations', icon: MapPin },
       { id: 'visual-identity', label: 'Visual Identity', icon: Image },
       { id: 'brand-colors', label: 'Brand Colors', icon: Palette }
     ];
+    if (!conceptId) sections.splice(2, 1);
+    return sections;
   };
 
   const getBreadcrumbItems = () => {
@@ -567,6 +625,76 @@ export default function ConceptEditBeta({ conceptId, conceptName, onBack, onSave
                   </div>
                 </div>
               </div>
+
+              {conceptId && (
+                <div
+                  id="meal-stations"
+                  ref={(el) => (sectionRefs.current['meal-stations'] = el)}
+                  className="bg-white rounded-lg border border-slate-200 p-6 shadow-sm scroll-mt-20"
+                >
+                  <div className="flex items-center gap-2 mb-4">
+                    <MapPin className="w-5 h-5 text-blue-600" />
+                    <h3 className="text-lg font-semibold text-slate-900">Meal Stations</h3>
+                  </div>
+                  <p className="text-sm text-slate-600 mb-4">
+                    Define the meal stations available at this concept. These stations are inherited by all locations under this concept and appear as suggestions when a location sets up its station scheduling.
+                  </p>
+
+                  <div className="flex gap-2 mb-4">
+                    <input
+                      type="text"
+                      value={newStationName}
+                      onChange={(e) => setNewStationName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddConceptStation(); } }}
+                      placeholder="Type a station name (e.g., Grill, Deli, Salad Bar)"
+                      className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddConceptStation}
+                      disabled={!newStationName.trim() || stationSaving}
+                      className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add
+                    </button>
+                  </div>
+
+                  {conceptStations.length === 0 ? (
+                    <div className="text-center py-8 border-2 border-dashed border-slate-200 rounded-lg">
+                      <Inbox className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                      <p className="text-sm text-slate-500">No stations defined yet. Add stations above to make them available to all locations.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {conceptStations.map((station) => (
+                        <div
+                          key={station.id}
+                          className="group flex items-center gap-3 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg hover:border-blue-300 transition-colors"
+                        >
+                          <GripVertical className="w-4 h-4 text-slate-300 flex-shrink-0" />
+                          <input
+                            type="text"
+                            value={station.name}
+                            onChange={(e) => setConceptStations(prev => prev.map(s => s.id === station.id ? { ...s, name: e.target.value } : s))}
+                            onBlur={(e) => handleRenameConceptStation(station.id, e.target.value)}
+                            className="flex-1 bg-transparent text-sm font-medium text-slate-900 border-none focus:ring-0 focus:outline-none"
+                          />
+                          <span className="text-xs text-slate-400 flex-shrink-0">Inherited</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveConceptStation(station.id)}
+                            disabled={stationSaving}
+                            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-50 rounded transition-all"
+                          >
+                            <X className="w-4 h-4 text-red-400" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div
                 id="visual-identity"

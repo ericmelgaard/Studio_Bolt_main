@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, Plus, Calendar, ChevronLeft, ChevronRight, Settings, Trash2, CreditCard as Edit2, MapPin } from 'lucide-react';
+import { ArrowLeft, Plus, Calendar, ChevronLeft, ChevronRight, Settings, Trash2, CreditCard as Edit2, MapPin, Inbox } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import StationCombobox, { StationSuggestion } from '../components/StationCombobox';
 
 interface StationSchedulingProps {
   storeId: number;
@@ -14,6 +15,9 @@ interface Station {
   uses_cycle: boolean;
   status: string;
   sort_order: number;
+  source: string | null;
+  concept_id: number | null;
+  store_id: number | null;
 }
 
 interface Brand {
@@ -48,10 +52,9 @@ export default function StationScheduling({ storeId, storeName, onBack }: Statio
   const [cycleSettings, setCycleSettings] = useState<CycleSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeWeek, setActiveWeek] = useState(1);
-  const [showAddStation, setShowAddStation] = useState(false);
   const [showAssignBrand, setShowAssignBrand] = useState<{ stationId: number; day: number } | null>(null);
-  const [newStationName, setNewStationName] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [comboboxSuggestions, setComboboxSuggestions] = useState<StationSuggestion[]>([]);
 
   useEffect(() => {
     loadAllData();
@@ -59,18 +62,77 @@ export default function StationScheduling({ storeId, storeName, onBack }: Statio
 
   const loadAllData = async () => {
     setLoading(true);
+
+    const storeStationIdsRes = await supabase.from('stations').select('id').eq('store_id', storeId);
+    const storeStationIds = storeStationIdsRes.data?.map(s => s.id) || [];
+
     const [stationsRes, brandsRes, schedulesRes, cycleRes] = await Promise.all([
       supabase.from('stations').select('*').eq('store_id', storeId).order('sort_order'),
       supabase.from('concepts').select('id, name, brand_primary_color, brand_secondary_color, icon').order('name'),
-      supabase.from('station_schedules').select('*').in('station_id', (await supabase.from('stations').select('id').eq('store_id', storeId)).data?.map(s => s.id) || []),
+      storeStationIds.length > 0
+        ? supabase.from('station_schedules').select('*').in('station_id', storeStationIds)
+        : Promise.resolve({ data: [], error: null }),
       supabase.from('organization_cycle_settings').select('starting_week_date, cycle_duration_weeks').eq('store_id', storeId).maybeSingle()
     ]);
 
-    if (stationsRes.data) setStations(stationsRes.data);
-    if (brandsRes.data) setBrands(brandsRes.data);
-    if (schedulesRes.data) setSchedules(schedulesRes.data);
-    if (cycleRes.data) setCycleSettings(cycleRes.data);
+    if (stationsRes.data) setStations(stationsRes.data as Station[]);
+    if (brandsRes.data) setBrands(brandsRes.data as Brand[]);
+    if (schedulesRes.data) setSchedules(schedulesRes.data as StationSchedule[]);
+    if (cycleRes.data) setCycleSettings(cycleRes.data as CycleSettings);
+
+    const existingStationNames = (stationsRes.data || []).map((s: any) => s.name.toLowerCase());
+    await loadSuggestions(existingStationNames);
+
     setLoading(false);
+  };
+
+  const loadSuggestions = async (existingNamesLower: string[] = []) => {
+    const { data: storeData } = await supabase
+      .from('stores')
+      .select('company_id')
+      .eq('id', storeId)
+      .maybeSingle();
+
+    if (!storeData) return;
+    const companyId = storeData.company_id;
+
+    const { data: companyData } = await supabase
+      .from('companies')
+      .select('concept_id')
+      .eq('id', companyId)
+      .maybeSingle();
+
+    let conceptId: number | null = null;
+    if (companyData?.concept_id) {
+      conceptId = companyData.concept_id;
+    } else {
+      const { data: brandLink } = await supabase
+        .from('company_brands')
+        .select('concept_id')
+        .eq('company_id', companyId)
+        .limit(1)
+        .maybeSingle();
+      conceptId = brandLink?.concept_id || null;
+    }
+
+    const [inheritedRes, feedRes] = await Promise.all([
+      conceptId
+        ? supabase.from('stations').select('id, name').eq('concept_id', conceptId).order('name')
+        : Promise.resolve({ data: [], error: null }),
+      supabase.from('feed_station_names').select('id, name, adopted').eq('store_id', storeId).order('name'),
+    ]);
+
+    const existingNames = existingNamesLower;
+
+    const inheritedSuggestions: StationSuggestion[] = (inheritedRes.data || [])
+      .filter((s: any) => !existingNames.includes(s.name.toLowerCase()))
+      .map((s: any) => ({ id: s.id, name: s.name, source: 'inherited' as const, station_id: s.id }));
+
+    const feedSuggestions: StationSuggestion[] = (feedRes.data || [])
+      .filter((f: any) => !f.adopted && !existingNames.includes(f.name.toLowerCase()))
+      .map((f: any) => ({ id: f.id, name: f.name, source: 'feed' as const }));
+
+    setComboboxSuggestions([...inheritedSuggestions, ...feedSuggestions]);
   };
 
   const cycleDuration = cycleSettings?.cycle_duration_weeks || 1;
@@ -97,20 +159,49 @@ export default function StationScheduling({ storeId, storeName, onBack }: Statio
     return brands.find(b => b.id === schedule.brand_id);
   };
 
-  const handleAddStation = async () => {
-    if (!newStationName.trim()) return;
-    const { error: insertError } = await supabase.from('stations').insert({
-      name: newStationName.trim(),
-      store_id: storeId,
-      sort_order: stations.length,
-      uses_cycle: true
-    });
-    if (insertError) {
-      setError(insertError.message);
-      return;
+  const handleSelectStation = async (name: string, suggestion?: StationSuggestion) => {
+    if (suggestion && suggestion.source === 'inherited' && suggestion.station_id) {
+      const { error: insertError } = await supabase.from('stations').insert({
+        name: suggestion.name,
+        store_id: storeId,
+        concept_id: null,
+        source: 'inherited',
+        sort_order: stations.length,
+        uses_cycle: true,
+      });
+      if (insertError) {
+        setError(insertError.message);
+        return;
+      }
+    } else if (suggestion && suggestion.source === 'feed') {
+      const { error: insertError } = await supabase.from('stations').insert({
+        name: suggestion.name,
+        store_id: storeId,
+        concept_id: null,
+        source: 'feed',
+        sort_order: stations.length,
+        uses_cycle: true,
+      });
+      if (insertError) {
+        setError(insertError.message);
+        return;
+      }
+      await supabase.from('feed_station_names').update({ adopted: true }).eq('id', suggestion.id);
+    } else {
+      const { error: insertError } = await supabase.from('stations').insert({
+        name,
+        store_id: storeId,
+        concept_id: null,
+        source: 'manual',
+        sort_order: stations.length,
+        uses_cycle: true,
+      });
+      if (insertError) {
+        setError(insertError.message);
+        return;
+      }
     }
-    setNewStationName('');
-    setShowAddStation(false);
+    setError(null);
     loadAllData();
   };
 
@@ -171,6 +262,16 @@ export default function StationScheduling({ storeId, storeName, onBack }: Statio
     loadAllData();
   };
 
+  const sourceBadge = (source: string | null) => {
+    const config: Record<string, { label: string; className: string }> = {
+      inherited: { label: 'Inherited', className: 'bg-blue-100 text-blue-700' },
+      feed: { label: 'From Feed', className: 'bg-amber-100 text-amber-700' },
+      manual: { label: 'Local', className: 'bg-slate-100 text-slate-600' },
+    };
+    const c = config[source || 'manual'] || config.manual;
+    return <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${c.className}`}>{c.label}</span>;
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center">
@@ -198,11 +299,6 @@ export default function StationScheduling({ storeId, storeName, onBack }: Statio
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setShowAddStation(true)} className="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1.5">
-              <Plus className="w-4 h-4" />Station
-            </button>
-          </div>
         </div>
 
         {/* Cycle Week Tabs */}
@@ -229,18 +325,34 @@ export default function StationScheduling({ storeId, storeName, onBack }: Statio
         )}
       </div>
 
-      {/* Calendar Grid */}
-      <div className="p-6">
+      {/* Content */}
+      <div className="p-6 space-y-6">
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>
+          <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>
         )}
 
+        {/* Add Station Combobox */}
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
+          <div className="flex items-center gap-2 mb-3">
+            <Plus className="w-5 h-5 text-blue-600" />
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Add Station</h3>
+          </div>
+          <p className="text-xs text-slate-500 mb-3">
+            Type to search inherited stations from the concept, stations from the data feed, or create a new one by typing a unique name.
+          </p>
+          <StationCombobox
+            suggestions={comboboxSuggestions}
+            existingNames={stations.map(s => s.name)}
+            onSelect={handleSelectStation}
+          />
+        </div>
+
+        {/* Station Grid */}
         {stations.length === 0 ? (
           <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-12 text-center">
             <MapPin className="w-12 h-12 text-slate-300 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">No Stations</h3>
-            <p className="text-slate-500 mb-6">Add stations to start scheduling brands for this location.</p>
-            <button onClick={() => setShowAddStation(true)} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Add First Station</button>
+            <p className="text-slate-500 mb-2">Use the search above to add stations from the inherited list, the data feed, or by creating your own.</p>
           </div>
         ) : (
           <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
@@ -248,7 +360,7 @@ export default function StationScheduling({ storeId, storeName, onBack }: Statio
               <table className="w-full">
                 <thead>
                   <tr className="bg-slate-50 dark:bg-slate-750">
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-48 border-b border-r border-slate-200 dark:border-slate-700">Station</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-56 border-b border-r border-slate-200 dark:border-slate-700">Station</th>
                     {DAYS_SHORT.map((day, i) => (
                       <th key={i} className="text-center px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700 min-w-[120px]">{day}</th>
                     ))}
@@ -258,14 +370,17 @@ export default function StationScheduling({ storeId, storeName, onBack }: Statio
                   {stations.map(station => (
                     <tr key={station.id} className="group hover:bg-slate-50/50 dark:hover:bg-slate-750/50">
                       <td className="px-4 py-3 border-b border-r border-slate-200 dark:border-slate-700">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{station.name}</p>
-                            <p className="text-[10px] text-slate-400 mt-0.5">
-                              {station.uses_cycle ? 'Cycle' : 'Static'}
-                            </p>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{station.name}</p>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="text-[10px] text-slate-400">
+                                {station.uses_cycle ? 'Cycle' : 'Static'}
+                              </span>
+                              {sourceBadge(station.source)}
+                            </div>
                           </div>
-                          <button onClick={() => handleDeleteStation(station.id)} className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-50 rounded transition-all">
+                          <button onClick={() => handleDeleteStation(station.id)} className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-50 rounded transition-all flex-shrink-0">
                             <Trash2 className="w-3.5 h-3.5 text-red-400" />
                           </button>
                         </div>
@@ -313,32 +428,13 @@ export default function StationScheduling({ storeId, storeName, onBack }: Statio
 
         {/* Today indicator */}
         {cycleDuration > 1 && (
-          <div className="mt-4 flex items-center gap-2 text-xs text-slate-500">
+          <div className="flex items-center gap-2 text-xs text-slate-500">
             <Calendar className="w-3.5 h-3.5" />
             <span>Current cycle week: <strong className="text-slate-700 dark:text-slate-300">Week {currentCycleWeek}</strong></span>
             {cycleSettings && <span className="text-slate-400">({cycleDuration}-week rotation starting {new Date(cycleSettings.starting_week_date).toLocaleDateString()})</span>}
           </div>
         )}
       </div>
-
-      {/* Add Station Modal */}
-      {showAddStation && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4">Add Station</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Station Name</label>
-                <input type="text" value={newStationName} onChange={e => setNewStationName(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" placeholder="e.g., Grill, Deli, Salad Bar" />
-              </div>
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button onClick={() => { setShowAddStation(false); setNewStationName(''); }} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 text-slate-700 transition-colors">Cancel</button>
-              <button onClick={handleAddStation} disabled={!newStationName.trim()} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">Add</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Assign Brand Modal */}
       {showAssignBrand && (
