@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
-import { Search, Plus, Inbox, ArrowDown, CornerDownLeft } from 'lucide-react';
+import { Check, Undo2 } from 'lucide-react';
 
 export interface StationSuggestion {
   id: number | string;
@@ -11,100 +11,116 @@ export interface StationSuggestion {
 interface StationComboboxProps {
   suggestions: StationSuggestion[];
   existingNames: string[];
-  onSelect: (name: string, suggestion?: StationSuggestion) => void;
-  placeholder?: string;
+  onAccept: (name: string, suggestion?: StationSuggestion) => void;
+  label?: string;
 }
 
 export default function StationCombobox({
   suggestions,
   existingNames,
-  onSelect,
-  placeholder = 'Type a station name to search or create...',
+  onAccept,
+  label = 'Assign Webtrition Meal Station',
 }: StationComboboxProps) {
-  const [query, setQuery] = useState('');
-  const [isOpen, setIsOpen] = useState(false);
-  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const [value, setValue] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const [matchedSuggestion, setMatchedSuggestion] = useState<StationSuggestion | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const normalizedQuery = query.trim().toLowerCase();
-  const trimmedQuery = query.trim();
+  const trimmed = value.trim();
+  const normalized = trimmed.toLowerCase();
 
-  const filtered = normalizedQuery
-    ? suggestions.filter(s => s.name.toLowerCase().includes(normalizedQuery))
-    : suggestions;
+  const filtered = normalized
+    ? suggestions.filter(s =>
+        s.name.toLowerCase().includes(normalized) &&
+        !existingNames.some(e => e.toLowerCase() === s.name.toLowerCase())
+      )
+    : [];
 
-  const exactMatch = suggestions.find(s => s.name.toLowerCase() === normalizedQuery);
-  const alreadyExists = existingNames.some(n => n.toLowerCase() === normalizedQuery);
-  const canCreate = normalizedQuery.length > 0 && !exactMatch && !alreadyExists;
-
-  const allOptions: StationSuggestion[] = [
-    ...filtered,
-    ...(canCreate ? [{ id: `create-${Date.now()}`, name: trimmedQuery, source: 'local' as const }] : []),
-  ];
+  const alreadyExists = existingNames.some(n => n.toLowerCase() === normalized);
+  const canAccept = trimmed.length > 0 && !alreadyExists;
 
   useEffect(() => {
-    setHighlightedIndex(0);
-  }, [query]);
+    setHighlightedIndex(-1);
+  }, [value]);
 
   useEffect(() => {
     const handler = (e: globalThis.MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
+        setShowSuggestions(false);
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const handleSelect = (option: StationSuggestion) => {
-    onSelect(option.name, option.source !== 'local' ? option : undefined);
-    setQuery('');
-    setIsOpen(false);
-    inputRef.current?.blur();
+  const pickSuggestion = (suggestion: StationSuggestion) => {
+    setValue(suggestion.name);
+    setMatchedSuggestion(suggestion);
+    setShowSuggestions(false);
+    inputRef.current?.focus();
   };
 
-  const handleCreate = () => {
-    if (!canCreate) return;
-    onSelect(trimmedQuery, undefined);
-    setQuery('');
-    setIsOpen(false);
-    inputRef.current?.blur();
+  const handleAccept = () => {
+    if (!canAccept) return;
+    onAccept(trimmed, matchedSuggestion && matchedSuggestion.name.toLowerCase() === normalized ? matchedSuggestion : undefined);
+    setValue('');
+    setMatchedSuggestion(null);
+    setShowSuggestions(false);
+  };
+
+  const handleUndo = () => {
+    setValue('');
+    setMatchedSuggestion(null);
+    setShowSuggestions(false);
+    inputRef.current?.focus();
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (!showSuggestions || filtered.length === 0) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleAccept();
+      }
+      return;
+    }
+
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setIsOpen(true);
-      setHighlightedIndex(prev => Math.min(prev + 1, allOptions.length - 1));
+      setHighlightedIndex(prev => Math.min(prev + 1, filtered.length - 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setHighlightedIndex(prev => Math.max(prev - 1, 0));
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (allOptions[highlightedIndex]) {
-        handleSelect(allOptions[highlightedIndex]);
-      } else if (canCreate) {
-        handleCreate();
+      if (highlightedIndex >= 0 && filtered[highlightedIndex]) {
+        pickSuggestion(filtered[highlightedIndex]);
+      } else {
+        handleAccept();
       }
     } else if (e.key === 'Escape') {
-      setIsOpen(false);
+      setShowSuggestions(false);
     }
+  };
+
+  const handleInputChange = (newValue: string) => {
+    setValue(newValue);
+    setMatchedSuggestion(null);
+    setShowSuggestions(true);
   };
 
   const sourceBadge = (source: string) => {
     const styles: Record<string, string> = {
-      inherited: 'bg-blue-100 text-blue-700',
-      feed: 'bg-amber-100 text-amber-700',
-      local: 'bg-slate-100 text-slate-600',
+      inherited: 'bg-blue-50 text-blue-600',
+      feed: 'bg-amber-50 text-amber-600',
     };
     const labels: Record<string, string> = {
-      inherited: 'Inherited',
-      feed: 'From Feed',
-      local: 'Local',
+      inherited: 'Concept',
+      feed: 'Feed',
     };
     return (
-      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${styles[source] || styles.local}`}>
+      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${styles[source] || 'bg-slate-50 text-slate-500'}`}>
         {labels[source] || source}
       </span>
     );
@@ -112,101 +128,80 @@ export default function StationCombobox({
 
   return (
     <div ref={containerRef} className="relative">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-        <input
-          ref={inputRef}
-          type="text"
-          value={query}
-          onChange={(e) => { setQuery(e.target.value); setIsOpen(true); }}
-          onFocus={() => setIsOpen(true)}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100"
-        />
-      </div>
+      {/* Label */}
+      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+        {label}
+      </label>
 
-      {/* Explicit create button — always visible when typing a non-matching name */}
-      {canCreate && (
+      {/* Input row */}
+      <div className="flex items-stretch gap-2">
+        <div className="relative flex-1">
+          <input
+            ref={inputRef}
+            type="text"
+            value={value}
+            onChange={(e) => handleInputChange(e.target.value)}
+            onFocus={() => { if (normalized) setShowSuggestions(true); }}
+            onKeyDown={handleKeyDown}
+            placeholder="Start typing a station name..."
+            className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm bg-white dark:bg-slate-700 dark:text-slate-100"
+          />
+        </div>
+
+        {/* Accept */}
         <button
           type="button"
-          onClick={handleCreate}
-          className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5 px-2.5 py-1 bg-green-600 text-white text-xs font-medium rounded-md hover:bg-green-700 transition-colors z-10"
+          onClick={handleAccept}
+          disabled={!canAccept}
+          title="Accept"
+          className="px-3.5 rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:bg-slate-200 disabled:text-slate-400 dark:disabled:bg-slate-700 dark:disabled:text-slate-500 transition-colors flex items-center gap-1.5 text-sm font-medium"
         >
-          <Plus className="w-3.5 h-3.5" />
-          Add
+          <Check className="w-4 h-4" />
+          Accept
         </button>
+
+        {/* Undo */}
+        <button
+          type="button"
+          onClick={handleUndo}
+          disabled={trimmed.length === 0}
+          title="Clear"
+          className="px-3 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 transition-colors flex items-center"
+        >
+          <Undo2 className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Validation hint */}
+      {alreadyExists && trimmed.length > 0 && (
+        <p className="mt-1 text-xs text-amber-600">This station is already assigned.</p>
       )}
 
-      {isOpen && (
-        <div className="absolute z-50 mt-1 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg shadow-lg max-h-64 overflow-y-auto">
-          {/* No query yet — show empty state */}
-          {allOptions.length === 0 && normalizedQuery.length === 0 && (
-            <div className="px-4 py-6 text-center">
-              <Inbox className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-              <p className="text-sm text-slate-500">Start typing to search inherited and feed stations.</p>
-            </div>
-          )}
-
-          {/* Query matches an existing station name */}
-          {allOptions.length === 0 && normalizedQuery.length > 0 && alreadyExists && (
-            <div className="px-4 py-3 text-sm text-slate-500">
-              This station is already added.
-            </div>
-          )}
-
-          {/* No matches but can't create (empty query after trim) */}
-          {allOptions.length === 0 && normalizedQuery.length === 0 && trimmedQuery.length > 0 && (
-            <div className="px-4 py-3 text-sm text-slate-500">
-              Type a station name to create one.
-            </div>
-          )}
-
-          {/* Render all options including the create option */}
-          {allOptions.map((option, index) => {
-            const isCreate = String(option.id).startsWith('create-');
-            return (
-              <button
-                key={option.id}
-                type="button"
-                onMouseEnter={() => setHighlightedIndex(index)}
-                onClick={() => handleSelect(option)}
-                className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
-                  highlightedIndex === index
-                    ? 'bg-blue-50 dark:bg-slate-700'
-                    : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'
-                } ${isCreate ? 'border-t-2 border-green-200 dark:border-green-700 mt-1' : ''}`}
-              >
-                {isCreate ? (
-                  <>
-                    <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
-                      <Plus className="w-4 h-4 text-green-600" />
-                    </div>
-                    <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                      Create new station: <span className="text-green-600 font-semibold">"{option.name}"</span>
-                    </span>
-                    <CornerDownLeft className="w-3.5 h-3.5 text-slate-400 ml-auto" />
-                  </>
-                ) : (
-                  <>
-                    <span className="text-sm font-medium text-slate-900 dark:text-slate-100 flex-1 truncate">
-                      {option.name}
-                    </span>
-                    {sourceBadge(option.source)}
-                  </>
-                )}
-              </button>
-            );
-          })}
-
-          {allOptions.length > 0 && (
-            <div className="px-3 py-2 border-t border-slate-100 dark:border-slate-700 flex items-center gap-1 text-[10px] text-slate-400">
-              <ArrowDown className="w-3 h-3" />
-              <span>Use arrow keys to navigate, Enter to select</span>
-            </div>
-          )}
+      {/* Autocomplete suggestions */}
+      {showSuggestions && filtered.length > 0 && (
+        <div className="absolute z-50 mt-1 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg shadow-lg max-h-52 overflow-y-auto">
+          {filtered.map((suggestion, index) => (
+            <button
+              key={suggestion.id}
+              type="button"
+              onMouseEnter={() => setHighlightedIndex(index)}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => pickSuggestion(suggestion)}
+              className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left text-sm transition-colors ${
+                highlightedIndex === index
+                  ? 'bg-blue-50 dark:bg-slate-700'
+                  : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'
+              }`}
+            >
+              <span className="font-medium text-slate-900 dark:text-slate-100 truncate">{suggestion.name}</span>
+              {sourceBadge(suggestion.source)}
+            </button>
+          ))}
         </div>
       )}
     </div>
   );
 }
+
+
+export default StationCombobox

@@ -331,19 +331,12 @@ export default function StationScheduling({ storeId, storeName, onBack }: Statio
           <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>
         )}
 
-        {/* Add Station Combobox */}
+        {/* Add Station */}
         <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
-          <div className="flex items-center gap-2 mb-3">
-            <Plus className="w-5 h-5 text-blue-600" />
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Add Station</h3>
-          </div>
-          <p className="text-xs text-slate-500 mb-3">
-            Type to search inherited stations from the concept, stations from the data feed, or create a new one by typing a unique name.
-          </p>
           <StationCombobox
             suggestions={comboboxSuggestions}
             existingNames={stations.map(s => s.name)}
-            onSelect={handleSelectStation}
+            onAccept={handleSelectStation}
           />
         </div>
 
