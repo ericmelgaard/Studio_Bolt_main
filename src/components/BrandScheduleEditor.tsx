@@ -3,7 +3,7 @@ import {
   Calendar, Plus, X, ChevronLeft, ChevronRight, Trash2,
   Coffee, Sun, Sunset, Moon, Check, Repeat, RotateCcw,
   CalendarDays, Copy, ClipboardPaste, Pencil, CalendarRange,
-  LayoutTemplate, ArrowRight, Link2, Layers,
+  LayoutTemplate, ArrowRight, Link2, Clock, Layers,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
@@ -26,6 +26,8 @@ interface GroupEntry {
   station_id: number | null;
   days_of_week: number[];
   daypart_id: string | null;
+  custom_start_time: string | null;
+  custom_end_time: string | null;
 }
 
 interface DaypartDef {
@@ -145,6 +147,14 @@ function getGroupColor(groupId: string, groups: ScheduleGroup[]): string {
 
 /* ─── Toast ─── */
 
+function formatTime12h(t: string | null | undefined): string {
+  if (!t) return '';
+  const [h, m] = t.split(':').map(Number);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
 function useToast() {
   const [msg, setMsg] = useState<string | null>(null);
   const show = useCallback((text: string) => {
@@ -197,6 +207,10 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
   const [editGStart, setEditGStart] = useState('');
   const [editGEnd, setEditGEnd] = useState('');
   const [editGRecurrence, setEditGRecurrence] = useState('');
+
+  const [editingTimeId, setEditingTimeId] = useState<string | null>(null);
+  const [timeStartInput, setTimeStartInput] = useState('');
+  const [timeEndInput, setTimeEndInput] = useState('');
 
   const { msg: toastMsg, show: showToast } = useToast();
   const todayMonday = useMemo(() => getMondayOfWeek(new Date()), []);
@@ -577,6 +591,36 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
     await supabase.from('brand_schedule_group_entries').delete().eq('id', entryId);
     setEntries(prev => prev.filter(e => e.id !== entryId));
     showToast('Daypart removed');
+  };
+
+  const openTimeEditor = (entry: GroupEntry) => {
+    setEditingTimeId(entry.id);
+    setTimeStartInput(entry.custom_start_time || '');
+    setTimeEndInput(entry.custom_end_time || '');
+  };
+
+  const saveCustomTime = async () => {
+    if (!editingTimeId) return;
+    const startVal = timeStartInput || null;
+    const endVal = timeEndInput || null;
+    await supabase.from('brand_schedule_group_entries').update({
+      custom_start_time: startVal,
+      custom_end_time: endVal,
+    }).eq('id', editingTimeId);
+    setEntries(prev => prev.map(e => e.id === editingTimeId
+      ? { ...e, custom_start_time: startVal, custom_end_time: endVal } : e));
+    setEditingTimeId(null);
+    showToast('Custom times saved');
+  };
+
+  const clearCustomTime = async (entryId: string) => {
+    await supabase.from('brand_schedule_group_entries').update({
+      custom_start_time: null,
+      custom_end_time: null,
+    }).eq('id', entryId);
+    setEntries(prev => prev.map(e => e.id === entryId
+      ? { ...e, custom_start_time: null, custom_end_time: null } : e));
+    showToast('Custom times cleared');
   };
 
   const selectWeek = (ws: Date) => {
@@ -1114,24 +1158,45 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
                       <td className="py-3 pr-4">
                         <div className="flex items-center gap-2">
                           {dpDef ? (
-                            <>
-                              <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: dpDef.color + '20' }}>
-                                <span style={{ color: dpDef.color }}>{DAYPART_ICONS[dpDef.daypart_name]}</span>
-                              </div>
-                              <div className="min-w-0">
-                                <p className="text-xs font-medium text-slate-800 truncate">{dpDef.display_label}</p>
-                              </div>
-                            </>
+                            <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: dpDef.color + '20' }}>
+                              <span style={{ color: dpDef.color }}>{DAYPART_ICONS[dpDef.daypart_name]}</span>
+                            </div>
                           ) : (
-                            <>
-                              <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-100 shrink-0">
-                                <Layers className="w-3.5 h-3.5 text-slate-400" />
-                              </div>
-                              <div className="min-w-0">
-                                <p className="text-xs font-medium text-slate-800 truncate">All Dayparts</p>
-                              </div>
-                            </>
+                            <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-100 shrink-0">
+                              <Layers className="w-3.5 h-3.5 text-slate-400" />
+                            </div>
                           )}
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-slate-800 truncate">{dpDef ? dpDef.display_label : 'All Dayparts'}</p>
+                            {editingTimeId === entry.id ? (
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <input type="time" value={timeStartInput} onChange={e => setTimeStartInput(e.target.value)}
+                                  className="px-1.5 py-0.5 border border-slate-300 rounded text-[10px] w-[88px] focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+                                <span className="text-[10px] text-slate-400">-</span>
+                                <input type="time" value={timeEndInput} onChange={e => setTimeEndInput(e.target.value)}
+                                  className="px-1.5 py-0.5 border border-slate-300 rounded text-[10px] w-[88px] focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+                                <button onClick={saveCustomTime}
+                                  className="px-1.5 py-0.5 text-[10px] font-medium text-white bg-[#00adf0] rounded hover:bg-[#0099d6] transition-colors">Save</button>
+                                {(entry.custom_start_time || entry.custom_end_time) && (
+                                  <button onClick={() => clearCustomTime(entry.id)}
+                                    className="px-1.5 py-0.5 text-[10px] text-red-500 hover:text-red-700 transition-colors">Clear</button>
+                                )}
+                                <button onClick={() => setEditingTimeId(null)}
+                                  className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
+                              </div>
+                            ) : (entry.custom_start_time || entry.custom_end_time) ? (
+                              <button onClick={() => !isReadOnly && openTimeEditor(entry)}
+                                className={`flex items-center gap-1 mt-0.5 text-[10px] text-blue-600 hover:text-blue-800 transition-colors ${isReadOnly ? 'cursor-default' : 'cursor-pointer'}`}>
+                                <Clock className="w-2.5 h-2.5" />
+                                {formatTime12h(entry.custom_start_time)} - {formatTime12h(entry.custom_end_time)}
+                              </button>
+                            ) : !isReadOnly && dpDef ? (
+                              <button onClick={() => openTimeEditor(entry)}
+                                className="text-[10px] text-slate-400 hover:text-[#00adf0] transition-colors mt-0.5">
+                                Set custom hours
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
                       </td>
                       {DAY_INDICES.map((dayIndex, colIdx) => {
