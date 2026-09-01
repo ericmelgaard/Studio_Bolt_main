@@ -3,7 +3,7 @@ import {
   Calendar, Plus, X, ChevronLeft, ChevronRight, Trash2,
   Coffee, Sun, Sunset, Moon, Check, Repeat, RotateCcw,
   CalendarDays, Copy, ClipboardPaste, Pencil, CalendarRange,
-  LayoutTemplate, ArrowRight, Link2,
+  LayoutTemplate, ArrowRight, Link2, Layers,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
@@ -23,17 +23,9 @@ interface ScheduleGroup {
 interface GroupEntry {
   id: string;
   group_id: string;
-  station_id: number;
+  station_id: number | null;
   days_of_week: number[];
   daypart_id: string | null;
-}
-
-interface Station {
-  id: number;
-  name: string;
-  store_id: number | null;
-  uses_cycle: boolean;
-  status: string;
 }
 
 interface DaypartDef {
@@ -169,12 +161,11 @@ type ViewMode = 'template' | 'week';
 export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }: Props) {
   const [groups, setGroups] = useState<ScheduleGroup[]>([]);
   const [entries, setEntries] = useState<GroupEntry[]>([]);
-  const [allStations, setAllStations] = useState<Station[]>([]);
   const [daypartDefs, setDaypartDefs] = useState<DaypartDef[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const [showAddStation, setShowAddStation] = useState(false);
+  const [showAddDaypart, setShowAddDaypart] = useState(false);
   const [showRepeatPopover, setShowRepeatPopover] = useState(false);
   const [confirmRevert, setConfirmRevert] = useState(false);
   const [repeatWeeksInput, setRepeatWeeksInput] = useState('2');
@@ -216,9 +207,8 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
 
   const loadData = async () => {
     setLoading(true);
-    const [groupsRes, stationsRes, daypartsRes] = await Promise.all([
+    const [groupsRes, daypartsRes] = await Promise.all([
       supabase.from('brand_schedule_groups').select('*').eq('brand_id', brandId),
-      supabase.from('stations').select('*').eq('status', 'active'),
       supabase.from('daypart_definitions').select('*')
         .is('concept_id', null).is('store_id', null).eq('is_active', true)
         .not('daypart_name', 'in', '("dark_hours","power_save")')
@@ -237,7 +227,6 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
       setEntries([]);
     }
 
-    setAllStations((stationsRes.data || []) as Station[]);
     setDaypartDefs((daypartsRes.data || []) as DaypartDef[]);
     setLoading(false);
   };
@@ -338,7 +327,7 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
       if (sourceEntries.length > 0) {
         const newEntries = sourceEntries.map(e => ({
           group_id: newGroup.id,
-          station_id: e.station_id,
+          station_id: null,
           days_of_week: [...e.days_of_week],
           daypart_id: e.daypart_id,
         }));
@@ -461,7 +450,7 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
 
   const copyEntries = (ents: GroupEntry[], name: string) => {
     setCopiedWeekData({ entries: ents.map(e => ({ ...e })), sourceName: name });
-    showToast('Copied \u2014 navigate and paste');
+    showToast('Copied — navigate and paste');
   };
 
   const pasteToTemplate = async () => {
@@ -475,7 +464,7 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
 
     const newEntries = copiedWeekData.entries.map(e => ({
       group_id: tpl.id,
-      station_id: e.station_id,
+      station_id: null,
       days_of_week: [...e.days_of_week],
       daypart_id: e.daypart_id,
     }));
@@ -521,7 +510,7 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
 
     const newEntries = copiedWeekData.entries.map(e => ({
       group_id: targetGroupId,
-      station_id: e.station_id,
+      station_id: null,
       days_of_week: [...e.days_of_week],
       daypart_id: e.daypart_id,
     }));
@@ -534,20 +523,20 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
 
   /* ─── Entry CRUD ─── */
 
-  const handleAddStation = async () => {
+  const handleAddDaypart = async () => {
     if (viewMode === 'template') {
       await ensureBaseGroup();
-      setShowAddStation(true);
+      setShowAddDaypart(true);
     } else {
       if (!resolvedGroup && !baseGroup) {
         await ensureBaseGroup();
         setViewMode('template');
       }
-      setShowAddStation(true);
+      setShowAddDaypart(true);
     }
   };
 
-  const addStationToGroup = async (stationId: number, daypartId: string | null) => {
+  const addDaypartToGroup = async (daypartId: string | null) => {
     setSaving(true);
     let targetGroup: ScheduleGroup | null = null;
 
@@ -562,7 +551,7 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
 
     const { data } = await supabase.from('brand_schedule_group_entries').insert({
       group_id: targetGroup.id,
-      station_id: stationId,
+      station_id: null,
       days_of_week: [1, 2, 3, 4, 5],
       daypart_id: daypartId,
     }).select().maybeSingle();
@@ -570,7 +559,7 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
       setEntries(prev => [...prev, data as GroupEntry]);
       showToast('Daypart added');
     }
-    setShowAddStation(false);
+    setShowAddDaypart(false);
     setSaving(false);
   };
 
@@ -587,7 +576,7 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
   const removeEntry = async (entryId: string) => {
     await supabase.from('brand_schedule_group_entries').delete().eq('id', entryId);
     setEntries(prev => prev.filter(e => e.id !== entryId));
-    showToast('Station removed');
+    showToast('Daypart removed');
   };
 
   const selectWeek = (ws: Date) => {
@@ -666,7 +655,7 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
             </span>
             <div className="h-2 rounded-full mx-auto bg-slate-500 mt-1.5" style={{ width: '100%' }} />
             <p className="text-[9px] text-slate-400 mt-1.5">
-              {baseEntries.length > 0 ? `${baseEntries.length} station${baseEntries.length !== 1 ? 's' : ''}` : 'empty'}
+              {baseEntries.length > 0 ? `${baseEntries.length} daypart${baseEntries.length !== 1 ? 's' : ''}` : 'empty'}
             </p>
             {viewMode === 'template' && (
               <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-slate-600 border-2 border-white" />
@@ -711,9 +700,9 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
               const isSelected = viewMode === 'week' && isSameWeek(ws, selectedWeek);
               const isCurrent = isSameWeek(ws, todayMonday);
               const wEntries = resolved ? entries.filter(e => e.group_id === resolved.id) : [];
-              const stationCount = wEntries.length;
+              const daypartCount = wEntries.length;
               const hasSchedule = !!resolved;
-              const hasContent = stationCount > 0;
+              const hasContent = daypartCount > 0;
               const inheritsTemplate = hasSchedule && resolved!.is_base;
 
               let barColor: string;
@@ -767,7 +756,7 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
                     </p>
                   ) : (
                     <p className="text-[9px] text-slate-400 mt-1">
-                      {hasContent ? `${stationCount} stn${stationCount !== 1 ? 's' : ''}` : hasSchedule ? 'empty' : '\u00A0'}
+                      {hasContent ? `${daypartCount} dp${daypartCount !== 1 ? 's' : ''}` : hasSchedule ? 'empty' : '\u00A0'}
                     </p>
                   )}
                 </button>
@@ -807,7 +796,7 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
               </span>
             </div>
             <p className="text-[11px] text-slate-500 pl-8">
-              This is the standard week. Any week without its own schedule uses these stations.
+              This is the standard week. Any week without its own schedule uses these dayparts.
             </p>
             <div className="flex items-center gap-1.5 flex-wrap pl-8 pt-0.5">
               {baseEntries.length > 0 && (
@@ -1049,14 +1038,14 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
         </div>
       )}
 
-      {/* ──── Station / Day Grid ──── */}
+      {/* ──── Daypart / Day Grid ──── */}
       <div className="p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-bold text-slate-800">
             {viewMode === 'template' ? 'Template Dayparts & Days' : 'Dayparts & Days'}
           </h3>
           {!isReadOnly && (
-            <button onClick={handleAddStation}
+            <button onClick={handleAddDaypart}
               className="px-3 py-1.5 text-xs font-medium text-white bg-[#00adf0] hover:bg-[#0099d6] rounded-lg transition-colors flex items-center gap-1.5">
               <Plus className="w-3.5 h-3.5" /> Add Daypart
             </button>
@@ -1078,7 +1067,7 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
             </p>
             <div className="flex items-center justify-center gap-2">
               {!isReadOnly && (
-                <button onClick={handleAddStation}
+                <button onClick={handleAddDaypart}
                   className="px-4 py-2 text-sm font-medium text-white bg-[#00adf0] hover:bg-[#0099d6] rounded-lg transition-colors inline-flex items-center gap-2">
                   <Plus className="w-4 h-4" /> Add Daypart
                 </button>
@@ -1108,7 +1097,7 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
             <table className="w-full">
               <thead>
                 <tr>
-                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide pb-3 pr-4 w-56">Station</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide pb-3 pr-4 w-56">Daypart</th>
                   {DAY_NAMES.map((day) => (
                     <th key={day} className="text-center pb-3 w-14">
                       <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{day}</span>
@@ -1119,29 +1108,30 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
               </thead>
               <tbody>
                 {activeEntries.map(entry => {
-                  const station = allStations.find(s => s.id === entry.station_id);
-                  if (!station) return null;
                   const dpDef = entry.daypart_id ? daypartDefs.find(d => d.id === entry.daypart_id) : null;
                   return (
                     <tr key={entry.id} className="border-t border-slate-100 group/row hover:bg-slate-50/50 transition-colors">
                       <td className="py-3 pr-4">
                         <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: brandColor }}>
-                            {station.name.charAt(0)}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-xs font-medium text-slate-800 truncate">{station.name}</p>
-                            <div className="flex items-center gap-1 mt-0.5">
-                              {dpDef ? (
-                                <span className="inline-flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full" style={{ backgroundColor: dpDef.color + '20', color: dpDef.color }}>
-                                  {DAYPART_ICONS[dpDef.daypart_name]}
-                                  {dpDef.display_label}
-                                </span>
-                              ) : (
-                                <span className="text-[9px] text-slate-400">All Dayparts</span>
-                              )}
-                            </div>
-                          </div>
+                          {dpDef ? (
+                            <>
+                              <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: dpDef.color + '20' }}>
+                                <span style={{ color: dpDef.color }}>{DAYPART_ICONS[dpDef.daypart_name]}</span>
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-xs font-medium text-slate-800 truncate">{dpDef.display_label}</p>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-100 shrink-0">
+                                <Layers className="w-3.5 h-3.5 text-slate-400" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-xs font-medium text-slate-800 truncate">All Dayparts</p>
+                              </div>
+                            </>
+                          )}
                         </div>
                       </td>
                       {DAY_INDICES.map((dayIndex, colIdx) => {
@@ -1210,9 +1200,9 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
                         <p className="text-xs font-medium text-slate-800 truncate">{groupDisplayName(g)}</p>
                         <p className="text-[10px] text-slate-400">
                           {formatShortDate(parseDate(g.start_date))}
-                          {g.end_date ? ` \u2013 ${formatShortDate(parseDate(g.end_date))}` : ''}
-                          {g.recurrence_weeks ? ` \u00B7 Every ${g.recurrence_weeks}w` : ''}
-                          {' \u00B7 '}{gEntries.length} station{gEntries.length !== 1 ? 's' : ''}
+                          {g.end_date ? ` – ${formatShortDate(parseDate(g.end_date))}` : ''}
+                          {g.recurrence_weeks ? ` · Every ${g.recurrence_weeks}w` : ''}
+                          {' · '}{gEntries.length} daypart{gEntries.length !== 1 ? 's' : ''}
                         </p>
                       </div>
                       {isActive && <Check className="w-3.5 h-3.5 text-[#00adf0] shrink-0" />}
@@ -1229,11 +1219,11 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
         </div>
       )}
 
-      {/* ──── Add Station Modal ──── */}
-      {showAddStation && (
-        <AddStationModal allStations={allStations} existingEntries={activeEntries}
-          daypartDefs={daypartDefs} saving={saving} onAdd={addStationToGroup}
-          onClose={() => setShowAddStation(false)} />
+      {/* ──── Add Daypart Modal ──── */}
+      {showAddDaypart && (
+        <AddDaypartModal existingEntries={activeEntries}
+          daypartDefs={daypartDefs} saving={saving} onAdd={addDaypartToGroup}
+          onClose={() => setShowAddDaypart(false)} />
       )}
 
       {/* ──── Create Schedule Prompt ──── */}
@@ -1242,7 +1232,7 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
             <h3 className="text-base font-bold text-slate-900 mb-1">Customize This Week</h3>
             <p className="text-xs text-slate-500 mb-4">
-              Create a separate schedule for this week. Stations from the current source will be copied so you can modify them.
+              Create a separate schedule for this week. Dayparts from the current source will be copied so you can modify them.
             </p>
             <div className="space-y-3">
               <div>
@@ -1284,9 +1274,9 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
             </h3>
             <p className="text-sm text-slate-500 mb-1">
               {pasteTarget === 'template' ? (
-                <>Paste {copiedWeekData.entries.length} station{copiedWeekData.entries.length !== 1 ? 's' : ''} from <strong>{copiedWeekData.sourceName}</strong> into the Week Template. This replaces the current template stations.</>
+                <>Paste {copiedWeekData.entries.length} daypart{copiedWeekData.entries.length !== 1 ? 's' : ''} from <strong>{copiedWeekData.sourceName}</strong> into the Week Template. This replaces the current template dayparts.</>
               ) : (
-                <>Paste {copiedWeekData.entries.length} station{copiedWeekData.entries.length !== 1 ? 's' : ''} from <strong>{copiedWeekData.sourceName}</strong> to the week of <strong>{formatShortDate(selectedWeek)}</strong>.</>
+                <>Paste {copiedWeekData.entries.length} daypart{copiedWeekData.entries.length !== 1 ? 's' : ''} from <strong>{copiedWeekData.sourceName}</strong> to the week of <strong>{formatShortDate(selectedWeek)}</strong>.</>
               )}
             </p>
             {pasteTarget === 'week' && resolvedGroup && !resolvedGroup.is_base && isOwnOverride && (
@@ -1376,24 +1366,19 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
 
 /* ─── Add Daypart Modal ─── */
 
-function AddStationModal({ allStations, existingEntries, daypartDefs, saving, onAdd, onClose }: {
-  allStations: Station[];
+function AddDaypartModal({ existingEntries, daypartDefs, saving, onAdd, onClose }: {
   existingEntries: GroupEntry[];
   daypartDefs: DaypartDef[];
   saving: boolean;
-  onAdd: (stationId: number, daypartId: string | null) => void;
+  onAdd: (daypartId: string | null) => void;
   onClose: () => void;
 }) {
-  const [search, setSearch] = useState('');
-  const [selectedStation, setSelectedStation] = useState<number | null>(null);
-  const [selectedDaypart, setSelectedDaypart] = useState<string>('all');
+  const [selectedDaypart, setSelectedDaypart] = useState<string | null>(null);
 
-  const filtered = search.trim()
-    ? allStations.filter(s => s.name.toLowerCase().includes(search.toLowerCase()))
-    : allStations;
+  const isAlreadyAdded = (dpId: string | null) =>
+    existingEntries.some(e => e.daypart_id === dpId);
 
-  const isAlreadyAdded = (stationId: number, dpId: string | null) =>
-    existingEntries.some(e => e.station_id === stationId && e.daypart_id === dpId);
+  const allDaypartsDisabled = isAlreadyAdded(null);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -1401,79 +1386,74 @@ function AddStationModal({ allStations, existingEntries, daypartDefs, saving, on
         <div className="flex items-center justify-between p-5 border-b border-slate-200">
           <div>
             <h2 className="text-base font-bold text-slate-900">Add Daypart</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Pick a daypart, then choose which station to assign</p>
+            <p className="text-xs text-slate-500 mt-0.5">Choose a daypart to add to the schedule</p>
           </div>
           <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg"><X className="w-5 h-5 text-slate-500" /></button>
         </div>
-        <div className="p-5 space-y-4 flex-1 overflow-y-auto">
-          {daypartDefs.length > 0 && (
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-2">1. Which daypart?</label>
-              <div className="flex flex-wrap gap-2">
-                <button onClick={() => setSelectedDaypart('all')}
-                  className={`px-3 py-2.5 text-xs font-medium rounded-lg border transition-all ${
-                    selectedDaypart === 'all' ? 'bg-blue-50 border-blue-300 text-blue-700 shadow-sm' : 'border-slate-200 text-slate-600 hover:border-slate-300'
-                  }`}>
-                  All Dayparts
+        <div className="p-5 flex-1 overflow-y-auto">
+          <div className="space-y-1.5">
+            {/* All Dayparts option */}
+            {(() => {
+              const disabled = allDaypartsDisabled;
+              const isSelected = selectedDaypart === 'all';
+              return (
+                <button
+                  onClick={() => !disabled && setSelectedDaypart('all')}
+                  disabled={disabled}
+                  className={`w-full flex items-center gap-3 p-3 rounded-lg text-left transition-all ${
+                    disabled ? 'opacity-40 cursor-not-allowed' :
+                    isSelected ? 'bg-blue-50 border-2 border-blue-300 shadow-sm' : 'hover:bg-slate-50 border-2 border-transparent'
+                  }`}
+                >
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-100 shrink-0">
+                    <Layers className="w-4 h-4 text-slate-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-800">All Dayparts</p>
+                    {disabled && <p className="text-[10px] text-slate-400">Already added</p>}
+                  </div>
+                  {isSelected && !disabled && <Check className="w-4 h-4 text-[#00adf0] shrink-0" />}
                 </button>
-                {daypartDefs.map(dp => (
-                  <button key={dp.id} onClick={() => setSelectedDaypart(dp.id)}
-                    className={`px-3 py-2.5 text-xs font-medium rounded-lg border transition-all flex items-center gap-1.5 ${
-                      selectedDaypart === dp.id ? 'bg-blue-50 border-blue-300 text-blue-700 shadow-sm' : 'border-slate-200 text-slate-600 hover:border-slate-300'
-                    }`}>
-                    {DAYPART_ICONS[dp.daypart_name]} {dp.display_label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-2">
-              {daypartDefs.length > 0 ? '2. Pick a station' : 'Pick a station to assign'}
-            </label>
-            <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search stations..."
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-              autoFocus />
-          </div>
-          <div className="space-y-1 max-h-48 overflow-y-auto">
-            {filtered.length === 0 ? (
-              <p className="text-sm text-slate-400 text-center py-4">No stations found</p>
-            ) : (
-              filtered.map(station => {
-                const dpId = selectedDaypart === 'all' ? null : selectedDaypart;
-                const alreadyIn = isAlreadyAdded(station.id, dpId);
-                return (
-                  <button key={station.id} onClick={() => !alreadyIn && setSelectedStation(station.id)}
-                    disabled={alreadyIn}
-                    className={`w-full flex items-center gap-3 p-2.5 rounded-lg text-left transition-all ${
-                      alreadyIn ? 'opacity-40 cursor-not-allowed' :
-                      selectedStation === station.id ? 'bg-blue-50 border border-blue-200' : 'hover:bg-slate-50 border border-transparent'
-                    }`}>
-                    <div className="w-7 h-7 rounded-lg bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-bold shrink-0">
-                      {station.name.charAt(0)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-800 truncate">{station.name}</p>
-                      {alreadyIn && <p className="text-[10px] text-slate-400">Already added</p>}
-                    </div>
-                    {selectedStation === station.id && !alreadyIn && <Check className="w-4 h-4 text-[#00adf0] shrink-0" />}
-                  </button>
-                );
-              })
-            )}
+              );
+            })()}
+
+            {/* Individual daypart options */}
+            {daypartDefs.map(dp => {
+              const disabled = isAlreadyAdded(dp.id);
+              const isSelected = selectedDaypart === dp.id;
+              return (
+                <button
+                  key={dp.id}
+                  onClick={() => !disabled && setSelectedDaypart(dp.id)}
+                  disabled={disabled}
+                  className={`w-full flex items-center gap-3 p-3 rounded-lg text-left transition-all ${
+                    disabled ? 'opacity-40 cursor-not-allowed' :
+                    isSelected ? 'bg-blue-50 border-2 border-blue-300 shadow-sm' : 'hover:bg-slate-50 border-2 border-transparent'
+                  }`}
+                >
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: dp.color + '20' }}>
+                    <span style={{ color: dp.color }}>{DAYPART_ICONS[dp.daypart_name]}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-800">{dp.display_label}</p>
+                    {disabled && <p className="text-[10px] text-slate-400">Already added</p>}
+                  </div>
+                  {isSelected && !disabled && <Check className="w-4 h-4 text-[#00adf0] shrink-0" />}
+                </button>
+              );
+            })}
           </div>
         </div>
         <div className="flex justify-end gap-3 p-5 border-t border-slate-200">
           <button onClick={onClose} className="px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 rounded-lg transition-colors">Cancel</button>
           <button
             onClick={() => {
-              if (!selectedStation) return;
-              onAdd(selectedStation, selectedDaypart === 'all' ? null : selectedDaypart);
+              if (selectedDaypart === null) return;
+              onAdd(selectedDaypart === 'all' ? null : selectedDaypart);
             }}
-            disabled={!selectedStation || saving}
+            disabled={selectedDaypart === null || saving}
             className="px-4 py-2 text-sm font-medium text-white bg-[#00adf0] rounded-lg hover:bg-[#0099d6] disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-            {saving ? 'Adding...' : 'Add Daypart'}
+            {saving ? 'Adding...' : 'Add'}
           </button>
         </div>
       </div>
