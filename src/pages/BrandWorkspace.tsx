@@ -10,6 +10,7 @@ import BrandScheduleEditor from '../components/BrandScheduleEditor';
 import StationCombobox, { StationSuggestion } from '../components/StationCombobox';
 import { supabase } from '../lib/supabase';
 import { useLocation } from '../hooks/useLocation';
+import { useWandDayparts, type ResolvedDaypart } from '../hooks/useEffectiveDayparts';
 
 interface Brand {
   id: number;
@@ -402,7 +403,7 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
   const [secondaryColor, setSecondaryColor] = useState(brand.brand_secondary_color || '#94a3b8');
   const [savingColors, setSavingColors] = useState(false);
 
-  // Daypart enrollments
+  // Daypart enrollments - uses the shared resolver hook (wand-level only for brands)
   interface DaypartEnrollment {
     id: string;
     brand_id: number;
@@ -415,24 +416,12 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
       daypart_name: string;
       display_label: string;
       color: string;
-      default_start_time: string;
-      default_end_time: string;
       icon: string;
       sort_order: number;
     } | null;
   }
-  interface DaypartDef {
-    id: string;
-    daypart_name: string;
-    display_label: string;
-    color: string;
-    default_start_time: string;
-    default_end_time: string;
-    icon: string;
-    sort_order: number;
-  }
+  const { dayparts: wandDayparts } = useWandDayparts();
   const [enrollments, setEnrollments] = useState<DaypartEnrollment[]>([]);
-  const [allDaypartDefs, setAllDaypartDefs] = useState<DaypartDef[]>([]);
   const [showAddDaypart, setShowAddDaypart] = useState(false);
   const [savingDaypart, setSavingDaypart] = useState(false);
   const [editingTimeId, setEditingTimeId] = useState<string | null>(null);
@@ -442,29 +431,17 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
   const loadDaypartEnrollments = async () => {
     const { data } = await supabase
       .from('brand_daypart_enrollments')
-      .select('*, daypart_definitions(id, daypart_name, display_label, color, default_start_time, default_end_time, icon, sort_order)')
+      .select('*, daypart_definitions(id, daypart_name, display_label, color, icon, sort_order)')
       .eq('brand_id', brand.id)
       .order('created_at');
     if (data) setEnrollments(data as DaypartEnrollment[]);
   };
 
-  const loadDaypartDefs = async () => {
-    const { data } = await supabase
-      .from('daypart_definitions')
-      .select('id, daypart_name, display_label, color, default_start_time, default_end_time, icon, sort_order')
-      .eq('is_active', true)
-      .order('sort_order');
-    if (data) setAllDaypartDefs(data as DaypartDef[]);
-  };
-
   const handleAddDaypart = async (daypartDefId: string) => {
     setSavingDaypart(true);
-    const def = allDaypartDefs.find(d => d.id === daypartDefId);
     await supabase.from('brand_daypart_enrollments').insert({
       brand_id: brand.id,
       daypart_definition_id: daypartDefId,
-      custom_start_time: def?.default_start_time || null,
-      custom_end_time: def?.default_end_time || null,
     });
     await loadDaypartEnrollments();
     setSavingDaypart(false);
@@ -486,7 +463,7 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
   };
 
   const enrolledDaypartIds = new Set(enrollments.filter(e => e.daypart_definition_id).map(e => e.daypart_definition_id));
-  const availableDayparts = allDaypartDefs.filter(d => !enrolledDaypartIds.has(d.id) && d.daypart_name !== 'dark_hours');
+  const availableDayparts = wandDayparts.filter(d => !enrolledDaypartIds.has(d.id));
 
   const DAYPART_ICON_MAP: Record<string, React.ReactNode> = {
     breakfast: <Coffee className="w-4 h-4" />,
@@ -513,7 +490,6 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
     loadLinkedStations();
     loadStationSuggestions();
     loadDaypartEnrollments();
-    loadDaypartDefs();
   }, [brand.id]);
 
   useEffect(() => {
@@ -789,11 +765,9 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
                 const def = enrollment.daypart_definitions!;
                 const icon = DAYPART_ICON_MAP[def.daypart_name];
                 const isEditing = editingTimeId === enrollment.id;
-                const systemStart = formatTime12h(def.default_start_time);
-                const systemEnd = formatTime12h(def.default_end_time);
+                const hasCustomTimes = !!(enrollment.custom_start_time || enrollment.custom_end_time);
                 const brandStart = formatTime12h(enrollment.custom_start_time);
                 const brandEnd = formatTime12h(enrollment.custom_end_time);
-                const hasCustomTimes = enrollment.custom_start_time !== def.default_start_time || enrollment.custom_end_time !== def.default_end_time;
 
                 return (
                   <div key={enrollment.id} className="group p-3.5 bg-white rounded-lg border border-slate-200 hover:border-slate-300 transition-colors">
@@ -820,16 +794,16 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
                             <button onClick={() => setEditingTimeId(null)}
                               className="px-2 py-1 text-xs text-slate-500 hover:text-slate-700 transition-colors">Cancel</button>
                           </div>
+                        ) : hasCustomTimes ? (
+                          <button onClick={() => { setEditingTimeId(enrollment.id); setTimeStartInput(enrollment.custom_start_time || ''); setTimeEndInput(enrollment.custom_end_time || ''); }}
+                            className="text-[11px] text-slate-500 hover:text-[#00adf0] transition-colors cursor-pointer mt-0.5">
+                            {brandStart} - {brandEnd}
+                          </button>
                         ) : (
-                          <div className="flex items-center gap-3 mt-0.5">
-                            <button onClick={() => { setEditingTimeId(enrollment.id); setTimeStartInput(enrollment.custom_start_time || def.default_start_time); setTimeEndInput(enrollment.custom_end_time || def.default_end_time); }}
-                              className="text-[11px] text-slate-500 hover:text-[#00adf0] transition-colors cursor-pointer">
-                              {brandStart} - {brandEnd}
-                            </button>
-                            {hasCustomTimes && (
-                              <span className="text-[10px] text-slate-400">System: {systemStart} - {systemEnd}</span>
-                            )}
-                          </div>
+                          <button onClick={() => { setEditingTimeId(enrollment.id); setTimeStartInput(''); setTimeEndInput(''); }}
+                            className="text-[11px] text-slate-400 hover:text-[#00adf0] transition-colors cursor-pointer mt-0.5">
+                            Uses system schedule -- click to set custom hours
+                          </button>
                         )}
                       </div>
                       <button onClick={() => handleRemoveDaypart(enrollment.id)}

@@ -219,7 +219,10 @@ export default function BrandScheduleEditor({ brandId, brandColor, userStoreId }
     const [groupsRes, stationsRes, daypartsRes] = await Promise.all([
       supabase.from('brand_schedule_groups').select('*').eq('brand_id', brandId),
       supabase.from('stations').select('*').eq('status', 'active'),
-      supabase.from('daypart_definitions').select('*'),
+      supabase.from('daypart_definitions').select('*')
+        .is('concept_id', null).is('store_id', null).eq('is_active', true)
+        .not('daypart_name', 'in', '("dark_hours","power_save")')
+        .order('sort_order'),
     ]);
 
     const loadedGroups = (groupsRes.data || []) as ScheduleGroup[];
