@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import Breadcrumb from '../components/Breadcrumb';
 import BrandScheduleEditor from '../components/BrandScheduleEditor';
-import StationCombobox, { StationSuggestion } from '../components/StationCombobox';
+import BrandStationsEditor from '../components/BrandStationsEditor';
 import { supabase } from '../lib/supabase';
 import { useLocation } from '../hooks/useLocation';
 
@@ -402,13 +402,11 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
 
   // Companies
   const [linkedCompanies, setLinkedCompanies] = useState<Array<{ id: number; name: string }>>([]);
-  const [linkedStations, setLinkedStations] = useState<Array<{ id: number; name: string; source?: string }>>([]);
-  const [stationSuggestions, setStationSuggestions] = useState<StationSuggestion[]>([]);
+
 
   useEffect(() => {
     loadLinkedCompanies();
-    loadLinkedStations();
-    loadStationSuggestions();
+
   }, [brand.id]);
 
   useEffect(() => {
@@ -444,53 +442,6 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
     }
   };
 
-  const loadLinkedStations = async () => {
-    const { data } = await supabase.from('brand_stations').select('station_id, stations(id, name)').eq('brand_id', brand.id);
-    if (data) {
-      const stations = data.map(d => ({ id: (d.stations as any)?.id, name: (d.stations as any)?.name || 'Unknown' })).filter(s => s.id);
-      setLinkedStations(stations);
-    }
-    loadStationSuggestions();
-  };
-
-  const loadStationSuggestions = async () => {
-    const { data } = await supabase.from('stations').select('id, name, source, concept_id').eq('is_active', true).order('name');
-    if (!data) return;
-    const linked = new Set(linkedStations.map(s => s.id));
-    const suggestions: StationSuggestion[] = data
-      .filter(s => !linked.has(s.id))
-      .map(s => ({
-        id: s.id,
-        name: s.name,
-        source: (s.concept_id ? 'inherited' : s.source === 'feed' ? 'feed' : 'local') as 'inherited' | 'feed' | 'local',
-        station_id: s.id,
-      }));
-    setStationSuggestions(suggestions);
-  };
-
-  const handleAcceptStation = async (name: string, suggestion?: StationSuggestion) => {
-    let stationId: number | null = null;
-    if (suggestion?.station_id) {
-      stationId = suggestion.station_id as number;
-    } else {
-      const existing = stationSuggestions.find(s => s.name.toLowerCase() === name.toLowerCase());
-      if (existing) {
-        stationId = existing.station_id as number;
-      } else {
-        const { data: newStation } = await supabase.from('stations').insert({ name, source: 'manual', is_active: true, uses_cycle: true }).select('id').maybeSingle();
-        if (newStation) stationId = newStation.id;
-      }
-    }
-    if (stationId) {
-      await supabase.from('brand_stations').insert({ brand_id: brand.id, station_id: stationId });
-      await loadLinkedStations();
-    }
-  };
-
-  const handleRemoveStation = async (stationId: number) => {
-    await supabase.from('brand_stations').delete().eq('brand_id', brand.id).eq('station_id', stationId);
-    loadLinkedStations();
-  };
 
   const handleSaveColors = async () => {
     setSavingColors(true);
@@ -653,41 +604,7 @@ function BrandDetailPanel({ brand, userStoreId, isAdmin, onBack, onUnlink,
           />
 
           {/* Webtrition Stations Section */}
-          <div data-section="stations" className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <Utensils className="w-4 h-4 text-[#00adf0]" />
-              <h2 className="text-base font-semibold text-slate-900">Webtrition Stations</h2>
-            </div>
-
-            <div className="mb-5">
-              <StationCombobox
-                suggestions={stationSuggestions}
-                existingNames={linkedStations.map(s => s.name)}
-                onAccept={handleAcceptStation}
-                label="Assign Webtrition Meal Station"
-              />
-            </div>
-
-            {linkedStations.length > 0 ? (
-              <div className="space-y-1.5">
-                {linkedStations.map(station => (
-                  <div key={station.id} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg group">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-md bg-amber-100 flex items-center justify-center">
-                        <Utensils className="w-3.5 h-3.5 text-amber-600" />
-                      </div>
-                      <span className="text-sm font-medium text-slate-700 truncate">{station.name}</span>
-                    </div>
-                    <button onClick={() => handleRemoveStation(station.id)} className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 transition-all">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-slate-400 text-center py-4">No webtrition stations assigned to this brand yet</p>
-            )}
-          </div>
+          <BrandStationsEditor brandId={brand.id} />
 
           {/* Quick Actions Section */}
           <div data-section="actions" className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
