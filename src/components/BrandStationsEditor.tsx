@@ -111,7 +111,7 @@ export default function BrandStationsEditor({ brandId }: Props) {
   const loadLinkedStations = async () => {
     const { data } = await supabase
       .from('brand_stations')
-      .select('id, station_id, daypart_id, stations(id, name), daypart_definitions(daypart_name, display_label, color)')
+      .select('id, station_id, daypart_id, stations!brand_stations_station_id_fkey(id, name), daypart_definitions!brand_stations_daypart_id_fkey(daypart_name, display_label, color)')
       .eq('brand_id', brandId);
     if (data) {
       const stations: LinkedStation[] = data.map((d: any) => ({
