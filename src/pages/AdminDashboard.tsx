@@ -29,6 +29,9 @@ const AssetLibrary = lazy(() => import('./AssetLibrary'));
 const ThemeBuilderBeta = lazy(() => import('./ThemeBuilderBeta'));
 const BrandWorkspace = lazy(() => import('./BrandWorkspace'));
 const BrandMenuManagement = lazy(() => import('./BrandMenuManagement'));
+const MenuManagement = lazy(() => import('./MenuManagement'));
+const MenuCalendarView = lazy(() => import('./MenuCalendarView'));
+const StationCoverageView = lazy(() => import('./StationCoverageView'));
 const StationScheduling = lazy(() => import('./StationScheduling'));
 const LocationSelector = lazy(() => import('../components/LocationSelector'));
 const HeaderNavigation = lazy(() => import('../components/HeaderNavigation'));
@@ -70,7 +73,7 @@ interface Store {
   company_id: number;
 }
 
-type ViewType = 'dashboard' | 'signage' | 'labels' | 'products' | 'resources' | 'themes' | 'themes-beta' | 'theme-builder-beta' | 'integration' | 'integration-dashboard' | 'integration-access' | 'wand-templates' | 'wand-mapper' | 'integration-sources' | 'core-attributes' | 'wand-products' | 'users' | 'edit-user' | 'dayparts' | 'sites-beta' | 'devices-displays' | 'display-types' | 'asset-library' | 'brands' | 'brand-menus' | 'station-scheduling';
+type ViewType = 'dashboard' | 'signage' | 'labels' | 'products' | 'resources' | 'themes' | 'themes-beta' | 'theme-builder-beta' | 'integration' | 'integration-dashboard' | 'integration-access' | 'wand-templates' | 'wand-mapper' | 'integration-sources' | 'core-attributes' | 'wand-products' | 'users' | 'edit-user' | 'dayparts' | 'sites-beta' | 'devices-displays' | 'display-types' | 'asset-library' | 'brands' | 'brand-menus' | 'menu-management' | 'menu-calendar' | 'station-coverage' | 'station-scheduling';
 
 export default function AdminDashboard({ onBack, user }: AdminDashboardProps) {
   const { location, setLocation, getLocationDisplay, resetLocation } = useLocation('admin', user.id);
@@ -130,6 +133,9 @@ export default function AdminDashboard({ onBack, user }: AdminDashboardProps) {
     ],
     control: [
       { id: 'brands' as ViewType, label: 'Brands', icon: UtensilsCrossed },
+      { id: 'menu-management' as ViewType, label: 'Menu Management', icon: Layers },
+      { id: 'menu-calendar' as ViewType, label: 'Schedule Calendar', icon: CalendarIcon },
+      { id: 'station-coverage' as ViewType, label: 'Station Coverage', icon: MapPin },
       { id: 'station-scheduling' as ViewType, label: 'Station Scheduling', icon: CalendarIcon },
       { id: 'signage' as ViewType, label: 'Signage', icon: Monitor },
       { id: 'labels' as ViewType, label: 'Labels', icon: Tag },
@@ -249,7 +255,7 @@ export default function AdminDashboard({ onBack, user }: AdminDashboardProps) {
             <button
               onClick={() => setActiveMenu(activeMenu === 'control' ? null : 'control')}
               className={`px-4 py-3 text-sm font-medium transition-colors flex items-center gap-1 ${
-                activeMenu === 'control' || ['signage', 'labels', 'products', 'resources', 'themes'].includes(currentView)
+                activeMenu === 'control' || ['signage', 'labels', 'products', 'resources', 'themes', 'brands', 'menu-management', 'menu-calendar', 'station-coverage', 'station-scheduling'].includes(currentView)
                   ? 'text-[#00adf0] border-b-2 border-[#00adf0]'
                   : 'text-[#002e5e] hover:text-[#00adf0]'
               }`}
@@ -473,7 +479,16 @@ export default function AdminDashboard({ onBack, user }: AdminDashboardProps) {
             )}
             {currentView === 'brands' && <BrandWorkspace userConceptId={user.concept_id || location.concept?.id} userCompanyId={user.company_id || location.company?.id} userStoreId={user.store_id || location.store?.id} isAdmin={true} onBack={() => setCurrentView('dashboard')} onNavigateToBrandMenus={(id, name) => { setBrandContext({ id, name }); setCurrentView('brand-menus'); }} onNavigateToScheduling={() => setCurrentView('station-scheduling')} onNavigateToProducts={() => setCurrentView('products')} />}
             {currentView === 'brand-menus' && brandContext && (
-              <BrandMenuManagement brandId={brandContext.id} brandName={brandContext.name} onBack={() => setCurrentView('brands')} />
+              <MenuManagement brandId={brandContext.id} brandName={brandContext.name} storeId={user.store_id || location.store?.id} onBack={() => { setBrandContext(null); setCurrentView('brands'); }} onNavigateToCalendar={() => setCurrentView('menu-calendar')} />
+            )}
+            {currentView === 'menu-management' && (
+              <MenuManagement storeId={user.store_id || location.store?.id} brandId={brandContext?.id} brandName={brandContext?.name} onBack={() => { setBrandContext(null); setCurrentView('dashboard'); }} onNavigateToCalendar={() => setCurrentView('menu-calendar')} />
+            )}
+            {currentView === 'menu-calendar' && (
+              <MenuCalendarView storeId={user.store_id || location.store?.id} brandId={brandContext?.id} onBack={() => setCurrentView('menu-management')} onNavigateToMenu={() => setCurrentView('menu-management')} />
+            )}
+            {currentView === 'station-coverage' && (
+              <StationCoverageView storeId={user.store_id || location.store?.id} onBack={() => setCurrentView('menu-management')} onNavigateToMenu={() => setCurrentView('menu-management')} />
             )}
             {currentView === 'station-scheduling' && <StationScheduling />}
             {currentView === 'sites-beta' && <SiteConfigurationBeta role="admin" userId={user.id} />}

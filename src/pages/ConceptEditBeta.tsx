@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import Breadcrumb from '../components/Breadcrumb';
 import IconPicker from '../components/IconPicker';
 import ColorPicker from '../components/ColorPicker';
-import BrandMenuManagement from './BrandMenuManagement';
+import MenuManagement from './MenuManagement';
 
 interface ConceptData {
   id?: number;
@@ -375,7 +375,7 @@ export default function ConceptEditBeta({ conceptId, conceptName, onBack, onSave
 
   if (showMenuManagement && conceptId) {
     return (
-      <BrandMenuManagement
+      <MenuManagement
         brandId={conceptId}
         brandName={formData.name || conceptName || 'Brand'}
         onBack={() => setShowMenuManagement(false)}
