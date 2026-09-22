@@ -1,7 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, Plus, Search, Calendar, Clock, Layers, Star, ChevronRight, ChevronDown, Filter, Repeat, MapPin, CreditCard as Edit3, Archive, CheckCircle, AlertCircle, Trash2, Eye, EyeOff } from 'lucide-react';
+import {
+  ArrowLeft, Plus, Search, Calendar, Clock, Layers, Star,
+  ChevronRight, ChevronDown, MapPin, CreditCard as Edit3,
+  CheckCircle, AlertCircle, Trash2, X, Link2, PenLine,
+  Package, MoreVertical, ArrowUp, ArrowDown
+} from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { formatScheduleDescription, getNextOccurrences } from '../lib/menuScheduleService';
+import { formatScheduleDescription } from '../lib/menuScheduleService';
 import { MenuItemEditor } from '../components/MenuItemEditor';
 import MenuScheduleBuilder from '../components/MenuScheduleBuilder';
 import type { MenuSchedule, CreateScheduleForm } from '../types/menuScheduling';
@@ -46,14 +51,25 @@ interface MenuSection {
   menu_id: string;
   name: string;
   sort_order: number;
+  source_type: string;
+  brand_section_id: string | null;
+}
+
+interface BrandSection {
+  id: string;
+  brand_id: number;
+  name: string;
+  description: string | null;
+  icon: string | null;
+  color: string | null;
+  sort_order: number;
 }
 
 interface MenuItem {
   id: string;
-  menu_zone_id: string;
-  product_id: number | null;
+  zone_id: string;
+  product_id: string | null;
   display_name: string | null;
-  display_description: string | null;
   price_override: number | null;
   portion_size: string | null;
   is_featured: boolean;
@@ -61,6 +77,7 @@ interface MenuItem {
   station_display_name: string | null;
   display_label: string | null;
   sort_order: number;
+  menu_id: string;
 }
 
 type StatusFilter = 'all' | 'active' | 'draft' | 'archived';
@@ -84,6 +101,12 @@ export default function MenuManagement({ storeId, brandId, brandName, onBack, on
   const [editingSchedule, setEditingSchedule] = useState<MenuSchedule | null>(null);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
   const [scheduleCounts, setScheduleCounts] = useState<Record<string, number>>({});
+  const [showAddSection, setShowAddSection] = useState(false);
+  const [brandSections, setBrandSections] = useState<BrandSection[]>([]);
+  const [addingItemToSection, setAddingItemToSection] = useState<string | null>(null);
+  const [sectionMenuOpen, setSectionMenuOpen] = useState<string | null>(null);
+  const [renamingSection, setRenamingSection] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
 
   useEffect(() => { loadData(); }, [storeId, brandId]);
 
@@ -118,19 +141,34 @@ export default function MenuManagement({ storeId, brandId, brandName, onBack, on
   const loadMenuDetail = async (menu: MenuRow) => {
     setSelectedMenu(menu);
     setViewLevel('detail');
-    const [secRes, schRes] = await Promise.all([
+    const queries: Promise<unknown>[] = [
       supabase.from('menu_zones').select('*').eq('menu_id', menu.id).order('sort_order'),
       supabase.from('menu_schedules').select('*').eq('menu_id', menu.id).order('priority', { ascending: false }),
-    ]);
+    ];
+    if (menu.brand_id) {
+      queries.push(supabase.from('brand_menu_sections').select('*').eq('brand_id', menu.brand_id).order('sort_order'));
+    }
+
+    const results = await Promise.all(queries);
+    const secRes = results[0] as { data: MenuSection[] | null };
+    const schRes = results[1] as { data: MenuSchedule[] | null };
+
     const secs = secRes.data ?? [];
     setSections(secs);
     setSchedules(schRes.data ?? []);
     setExpandedSections(new Set(secs.map(s => s.id)));
 
+    if (menu.brand_id && results[2]) {
+      const bsRes = results[2] as { data: BrandSection[] | null };
+      setBrandSections(bsRes.data ?? []);
+    } else {
+      setBrandSections([]);
+    }
+
     if (secs.length > 0) {
       const { data: itemsData } = await supabase
         .from('scheduled_menu_items').select('*')
-        .in('menu_zone_id', secs.map(s => s.id)).order('sort_order');
+        .in('zone_id', secs.map(s => s.id)).order('sort_order');
       setItems(itemsData ?? []);
     } else {
       setItems([]);
@@ -159,6 +197,101 @@ export default function MenuManagement({ storeId, brandId, brandName, onBack, on
     return placements.find(p => p.id === id)?.name ?? null;
   };
 
+  const availableBrandSections = useMemo(() => {
+    const usedIds = new Set(sections.filter(s => s.brand_section_id).map(s => s.brand_section_id));
+    return brandSections.filter(bs => !usedIds.has(bs.id));
+  }, [brandSections, sections]);
+
+  // ── Section handlers ──
+  const handleAddCustomSection = async (name: string) => {
+    if (!selectedMenu || !name.trim()) return;
+    const maxOrder = sections.reduce((max, s) => Math.max(max, s.sort_order), -1);
+    const { data } = await supabase.from('menu_zones').insert({
+      menu_id: selectedMenu.id,
+      name: name.trim(),
+      sort_order: maxOrder + 1,
+      source_type: 'custom',
+    }).select().maybeSingle();
+    if (data) {
+      setSections(prev => [...prev, data]);
+      setExpandedSections(prev => new Set([...prev, data.id]));
+    }
+    setShowAddSection(false);
+  };
+
+  const handleInheritSection = async (bs: BrandSection) => {
+    if (!selectedMenu) return;
+    const maxOrder = sections.reduce((max, s) => Math.max(max, s.sort_order), -1);
+    const { data } = await supabase.from('menu_zones').insert({
+      menu_id: selectedMenu.id,
+      name: bs.name,
+      sort_order: maxOrder + 1,
+      source_type: 'inherited',
+      brand_section_id: bs.id,
+      icon: bs.icon,
+      color: bs.color,
+    }).select().maybeSingle();
+    if (data) {
+      setSections(prev => [...prev, data]);
+      setExpandedSections(prev => new Set([...prev, data.id]));
+    }
+    setShowAddSection(false);
+  };
+
+  const handleDeleteSection = async (secId: string) => {
+    await supabase.from('scheduled_menu_items').delete().eq('zone_id', secId);
+    await supabase.from('menu_zones').delete().eq('id', secId);
+    setSections(prev => prev.filter(s => s.id !== secId));
+    setItems(prev => prev.filter(i => i.zone_id !== secId));
+    setSectionMenuOpen(null);
+  };
+
+  const handleRenameSection = async (secId: string, newName: string) => {
+    if (!newName.trim()) return;
+    await supabase.from('menu_zones').update({ name: newName.trim() }).eq('id', secId);
+    setSections(prev => prev.map(s => s.id === secId ? { ...s, name: newName.trim() } : s));
+    setRenamingSection(null);
+  };
+
+  const handleMoveSection = async (secId: string, direction: 'up' | 'down') => {
+    const idx = sections.findIndex(s => s.id === secId);
+    if (idx < 0) return;
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= sections.length) return;
+    const a = sections[idx];
+    const b = sections[swapIdx];
+    await Promise.all([
+      supabase.from('menu_zones').update({ sort_order: b.sort_order }).eq('id', a.id),
+      supabase.from('menu_zones').update({ sort_order: a.sort_order }).eq('id', b.id),
+    ]);
+    const updated = [...sections];
+    updated[idx] = { ...b, sort_order: a.sort_order };
+    updated[swapIdx] = { ...a, sort_order: b.sort_order };
+    updated.sort((x, y) => x.sort_order - y.sort_order);
+    setSections(updated);
+    setSectionMenuOpen(null);
+  };
+
+  // ── Item handlers ──
+  const handleAddFreeformItem = async (sectionId: string, name: string, price: string) => {
+    if (!selectedMenu || !name.trim()) return;
+    const secItems = items.filter(i => i.zone_id === sectionId);
+    const maxOrder = secItems.reduce((max, i) => Math.max(max, i.sort_order), -1);
+    const { data } = await supabase.from('scheduled_menu_items').insert({
+      menu_id: selectedMenu.id,
+      zone_id: sectionId,
+      product_id: null,
+      display_name: name.trim(),
+      sort_order: maxOrder + 1,
+      price_override: price ? parseFloat(price) : null,
+      is_featured: false,
+    }).select().maybeSingle();
+    if (data) {
+      setItems(prev => [...prev, data]);
+    }
+    setAddingItemToSection(null);
+  };
+
   const handleSaveSchedule = async (form: CreateScheduleForm) => {
     if (!selectedMenu) return;
     const payload: Record<string, unknown> = {
@@ -182,7 +315,6 @@ export default function MenuManagement({ storeId, brandId, brandName, onBack, on
     if (form.daypart_definition_id) payload.daypart_definition_id = form.daypart_definition_id;
     if (form.custom_start_time) payload.custom_start_time = form.custom_start_time;
     if (form.custom_end_time) payload.custom_end_time = form.custom_end_time;
-
     if (editingSchedule) {
       await supabase.from('menu_schedules').update(payload).eq('id', editingSchedule.id);
     } else {
@@ -195,7 +327,6 @@ export default function MenuManagement({ storeId, brandId, brandName, onBack, on
   };
 
   const handleDeleteSchedule = async (id: string) => {
-    if (!selectedMenu) return;
     await supabase.from('menu_schedules').delete().eq('id', id);
     setSchedules(prev => prev.filter(s => s.id !== id));
   };
@@ -205,6 +336,11 @@ export default function MenuManagement({ storeId, brandId, brandName, onBack, on
     await supabase.from('scheduled_menu_items').update(updates).eq('id', editingItem.id);
     setItems(prev => prev.map(i => i.id === editingItem.id ? { ...i, ...updates } as MenuItem : i));
     setEditingItem(null);
+  };
+
+  const handleDeleteItem = async (itemId: string) => {
+    await supabase.from('scheduled_menu_items').delete().eq('id', itemId);
+    setItems(prev => prev.filter(i => i.id !== itemId));
   };
 
   const handleStatusChange = async (menu: MenuRow, status: string) => {
@@ -280,58 +416,164 @@ export default function MenuManagement({ storeId, brandId, brandName, onBack, on
             <div className="bg-white rounded-lg border border-slate-200 shadow-sm">
               <div className="p-4 border-b border-slate-100 flex items-center justify-between">
                 <h2 className="font-semibold text-slate-900">Sections & Items</h2>
-                <span className="text-xs text-slate-400">{sections.length} sections, {items.length} items</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400">{sections.length} sections, {items.length} items</span>
+                  <button
+                    onClick={() => setShowAddSection(true)}
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add Section
+                  </button>
+                </div>
               </div>
+
               {sections.length === 0 ? (
-                <div className="p-8 text-center text-slate-400">
-                  <Layers className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">No sections yet</p>
+                <div className="p-10 text-center">
+                  <Layers className="w-10 h-10 mx-auto mb-3 text-slate-300" />
+                  <p className="text-sm font-medium text-slate-500 mb-1">No sections yet</p>
+                  <p className="text-xs text-slate-400 mb-4">
+                    {brandId ? 'Inherit sections from the brand or create your own.' : 'Create sections to organize your menu items.'}
+                  </p>
+                  <button
+                    onClick={() => setShowAddSection(true)}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Your First Section
+                  </button>
                 </div>
               ) : (
                 <div className="divide-y divide-slate-100">
-                  {sections.map(sec => {
-                    const secItems = items.filter(i => i.menu_zone_id === sec.id);
+                  {sections.map((sec, secIdx) => {
+                    const secItems = items.filter(i => i.zone_id === sec.id);
                     const isExpanded = expandedSections.has(sec.id);
+                    const isInherited = sec.source_type === 'inherited';
+
                     return (
                       <div key={sec.id}>
-                        <button
-                          onClick={() => setExpandedSections(prev => {
-                            const next = new Set(prev);
-                            isExpanded ? next.delete(sec.id) : next.add(sec.id);
-                            return next;
-                          })}
-                          className="w-full flex items-center justify-between p-4 hover:bg-slate-50 transition-colors text-left"
-                        >
-                          <div className="flex items-center gap-3">
+                        {/* Section header */}
+                        <div className="flex items-center justify-between p-4 hover:bg-slate-50 transition-colors">
+                          <button
+                            onClick={() => setExpandedSections(prev => {
+                              const next = new Set(prev);
+                              isExpanded ? next.delete(sec.id) : next.add(sec.id);
+                              return next;
+                            })}
+                            className="flex items-center gap-3 flex-1 text-left"
+                          >
                             {isExpanded ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                            <span className="font-medium text-slate-800">{sec.name}</span>
+                            {renamingSection === sec.id ? (
+                              <input
+                                autoFocus
+                                value={renameValue}
+                                onChange={e => setRenameValue(e.target.value)}
+                                onBlur={() => { handleRenameSection(sec.id, renameValue); }}
+                                onKeyDown={e => { if (e.key === 'Enter') handleRenameSection(sec.id, renameValue); if (e.key === 'Escape') setRenamingSection(null); }}
+                                onClick={e => e.stopPropagation()}
+                                className="px-2 py-0.5 text-sm font-medium border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              />
+                            ) : (
+                              <span className="font-medium text-slate-800">{sec.name}</span>
+                            )}
+                            {isInherited && (
+                              <span className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-teal-50 text-teal-700">
+                                <Link2 className="w-2.5 h-2.5" />Brand
+                              </span>
+                            )}
+                            {!isInherited && (
+                              <span className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-500">
+                                <PenLine className="w-2.5 h-2.5" />Custom
+                              </span>
+                            )}
                             <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{secItems.length}</span>
+                          </button>
+
+                          {/* Section action menu */}
+                          <div className="relative">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setSectionMenuOpen(sectionMenuOpen === sec.id ? null : sec.id); }}
+                              className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+                            {sectionMenuOpen === sec.id && (
+                              <>
+                                <div className="fixed inset-0 z-10" onClick={() => setSectionMenuOpen(null)} />
+                                <div className="absolute right-0 top-full mt-1 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-20 min-w-[160px]">
+                                  {!isInherited && (
+                                    <button onClick={() => { setRenamingSection(sec.id); setRenameValue(sec.name); setSectionMenuOpen(null); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2">
+                                      <PenLine className="w-3.5 h-3.5 text-slate-400" />Rename
+                                    </button>
+                                  )}
+                                  {secIdx > 0 && (
+                                    <button onClick={() => handleMoveSection(sec.id, 'up')} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2">
+                                      <ArrowUp className="w-3.5 h-3.5 text-slate-400" />Move Up
+                                    </button>
+                                  )}
+                                  {secIdx < sections.length - 1 && (
+                                    <button onClick={() => handleMoveSection(sec.id, 'down')} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2">
+                                      <ArrowDown className="w-3.5 h-3.5 text-slate-400" />Move Down
+                                    </button>
+                                  )}
+                                  <div className="border-t border-slate-100 my-1" />
+                                  <button onClick={() => handleDeleteSection(sec.id)} className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2">
+                                    <Trash2 className="w-3.5 h-3.5" />Remove Section
+                                  </button>
+                                </div>
+                              </>
+                            )}
                           </div>
-                        </button>
+                        </div>
+
+                        {/* Section items */}
                         {isExpanded && (
                           <div className="pb-2">
                             {secItems.length === 0 ? (
                               <p className="px-12 py-3 text-sm text-slate-400 italic">No items in this section</p>
                             ) : (
                               secItems.map(item => (
-                                <button
-                                  key={item.id}
-                                  onClick={() => setEditingItem(item)}
-                                  className="w-full flex items-center gap-4 px-12 py-2.5 hover:bg-blue-50/50 transition-colors text-left group"
-                                >
-                                  <span className="flex-1 text-sm text-slate-700 group-hover:text-slate-900">
-                                    {item.display_name ?? `Item #${item.sort_order}`}
-                                  </span>
-                                  {item.is_featured && <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />}
-                                  {item.price_override != null && (
-                                    <span className="text-xs text-slate-500">${item.price_override.toFixed(2)}</span>
-                                  )}
-                                  {item.portion_size && (
-                                    <span className="text-xs text-slate-400">{item.portion_size}</span>
-                                  )}
-                                  <Edit3 className="w-3.5 h-3.5 text-slate-300 group-hover:text-blue-500 transition-colors" />
-                                </button>
+                                <div key={item.id} className="flex items-center group">
+                                  <button
+                                    onClick={() => setEditingItem(item)}
+                                    className="flex-1 flex items-center gap-4 px-12 py-2.5 hover:bg-blue-50/50 transition-colors text-left"
+                                  >
+                                    <span className="flex-1 text-sm text-slate-700 group-hover:text-slate-900">
+                                      {item.display_name ?? `Item #${item.sort_order}`}
+                                    </span>
+                                    {item.is_featured && <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />}
+                                    {item.price_override != null && (
+                                      <span className="text-xs text-slate-500">${Number(item.price_override).toFixed(2)}</span>
+                                    )}
+                                    {item.portion_size && (
+                                      <span className="text-xs text-slate-400">{item.portion_size}</span>
+                                    )}
+                                    <Edit3 className="w-3.5 h-3.5 text-slate-300 group-hover:text-blue-500 transition-colors" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteItem(item.id)}
+                                    className="p-1.5 mr-3 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
                               ))
+                            )}
+
+                            {/* Add Item inline form or button */}
+                            {addingItemToSection === sec.id ? (
+                              <AddItemInline
+                                onAdd={(name, price) => handleAddFreeformItem(sec.id, name, price)}
+                                onCancel={() => setAddingItemToSection(null)}
+                              />
+                            ) : (
+                              <button
+                                onClick={() => setAddingItemToSection(sec.id)}
+                                className="flex items-center gap-2 px-12 py-2 text-xs font-medium text-slate-400 hover:text-blue-600 transition-colors w-full text-left"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                Add Item
+                              </button>
                             )}
                           </div>
                         )}
@@ -376,22 +618,11 @@ export default function MenuManagement({ storeId, brandId, brandName, onBack, on
                               <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${sch.schedule_type === 'one_time' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
                                 {sch.schedule_type === 'one_time' ? 'One-time' : 'Recurring'}
                               </span>
-                              {dp && (
-                                <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600">
-                                  {dp.display_label}
-                                </span>
-                              )}
-                              {pl && (
-                                <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600">
-                                  <MapPin className="w-2.5 h-2.5 inline mr-0.5" />{pl}
-                                </span>
-                              )}
+                              {dp && <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600">{dp.display_label}</span>}
+                              {pl && <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600"><MapPin className="w-2.5 h-2.5 inline mr-0.5" />{pl}</span>}
                             </div>
                           </button>
-                          <button
-                            onClick={() => handleDeleteSchedule(sch.id)}
-                            className="p-1.5 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
-                          >
+                          <button onClick={() => handleDeleteSchedule(sch.id)} className="p-1.5 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -407,31 +638,30 @@ export default function MenuManagement({ storeId, brandId, brandName, onBack, on
               <h3 className="text-sm font-semibold text-slate-700">Menu Info</h3>
               <div className="space-y-2 text-sm">
                 {selectedMenu.menu_type && (
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Type</span>
-                    <span className="text-slate-800">{selectedMenu.menu_type}</span>
-                  </div>
+                  <div className="flex justify-between"><span className="text-slate-500">Type</span><span className="text-slate-800">{selectedMenu.menu_type}</span></div>
                 )}
                 {selectedMenu.daypart_definition_id && (
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Default Daypart</span>
-                    <span className="text-slate-800">{getDaypartLabel(selectedMenu.daypart_definition_id)?.display_label ?? '—'}</span>
-                  </div>
+                  <div className="flex justify-between"><span className="text-slate-500">Default Daypart</span><span className="text-slate-800">{getDaypartLabel(selectedMenu.daypart_definition_id)?.display_label ?? '—'}</span></div>
                 )}
                 {selectedMenu.placement_group_id && (
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Station</span>
-                    <span className="text-slate-800">{getPlacementName(selectedMenu.placement_group_id) ?? '—'}</span>
-                  </div>
+                  <div className="flex justify-between"><span className="text-slate-500">Station</span><span className="text-slate-800">{getPlacementName(selectedMenu.placement_group_id) ?? '—'}</span></div>
                 )}
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Created</span>
-                  <span className="text-slate-800">{new Date(selectedMenu.created_at).toLocaleDateString()}</span>
-                </div>
+                <div className="flex justify-between"><span className="text-slate-500">Created</span><span className="text-slate-800">{new Date(selectedMenu.created_at).toLocaleDateString()}</span></div>
               </div>
             </div>
           </div>
         </div>
+
+        {/* Add Section Dialog */}
+        {showAddSection && (
+          <AddSectionDialog
+            brandSections={availableBrandSections}
+            hasBrand={!!brandId}
+            onAddCustom={handleAddCustomSection}
+            onInherit={handleInheritSection}
+            onClose={() => setShowAddSection(false)}
+          />
+        )}
 
         {showScheduleBuilder && selectedMenu && (
           <MenuScheduleBuilder
@@ -483,32 +713,20 @@ export default function MenuManagement({ storeId, brandId, brandName, onBack, on
         </div>
       </div>
 
-      {/* Search + Filters */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search menus..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
+          <input type="text" placeholder="Search menus..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
         </div>
         <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
           {(['all', 'active', 'draft', 'archived'] as StatusFilter[]).map(f => (
-            <button
-              key={f}
-              onClick={() => setStatusFilter(f)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${statusFilter === f ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
+            <button key={f} onClick={() => setStatusFilter(f)} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${statusFilter === f ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
               {f.charAt(0).toUpperCase() + f.slice(1)}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Menu Cards */}
       {filteredMenus.length === 0 ? (
         <div className="bg-white rounded-lg border border-slate-200 p-12 text-center">
           <Layers className="w-10 h-10 mx-auto mb-3 text-slate-300" />
@@ -522,34 +740,18 @@ export default function MenuManagement({ storeId, brandId, brandName, onBack, on
             const pl = getPlacementName(menu.placement_group_id);
             const schCount = scheduleCounts[menu.id] ?? 0;
             return (
-              <button
-                key={menu.id}
-                onClick={() => loadMenuDetail(menu)}
-                className="w-full bg-white rounded-lg border border-slate-200 p-4 hover:border-blue-300 hover:shadow-sm transition-all text-left group"
-              >
+              <button key={menu.id} onClick={() => loadMenuDetail(menu)} className="w-full bg-white rounded-lg border border-slate-200 p-4 hover:border-blue-300 hover:shadow-sm transition-all text-left group">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 min-w-0">
                     <h3 className="font-semibold text-slate-900 truncate">{menu.name}</h3>
                     {statusBadge(menu.status)}
-                    {menu.menu_type && (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-500">
-                        {menu.menu_type}
-                      </span>
-                    )}
+                    {menu.menu_type && <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-500">{menu.menu_type}</span>}
                   </div>
                   <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-500 transition-colors shrink-0" />
                 </div>
                 <div className="flex flex-wrap items-center gap-3 mt-2">
-                  {dp && (
-                    <span className="flex items-center gap-1 text-xs text-slate-500">
-                      <Clock className="w-3 h-3" />{dp.display_label}
-                    </span>
-                  )}
-                  {pl && (
-                    <span className="flex items-center gap-1 text-xs text-slate-500">
-                      <MapPin className="w-3 h-3" />{pl}
-                    </span>
-                  )}
+                  {dp && <span className="flex items-center gap-1 text-xs text-slate-500"><Clock className="w-3 h-3" />{dp.display_label}</span>}
+                  {pl && <span className="flex items-center gap-1 text-xs text-slate-500"><MapPin className="w-3 h-3" />{pl}</span>}
                   <span className={`flex items-center gap-1 text-xs ${schCount > 0 ? 'text-emerald-600' : 'text-amber-500'}`}>
                     {schCount > 0 ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
                     {schCount > 0 ? `${schCount} schedule${schCount > 1 ? 's' : ''}` : 'No schedules'}
@@ -563,13 +765,7 @@ export default function MenuManagement({ storeId, brandId, brandName, onBack, on
       )}
 
       {showCreateModal && (
-        <CreateMenuModal
-          brandId={brandId}
-          dayparts={dayparts}
-          placements={nonRootPlacements}
-          onSave={handleCreateMenu}
-          onClose={() => setShowCreateModal(false)}
-        />
+        <CreateMenuModal brandId={brandId} dayparts={dayparts} placements={nonRootPlacements} onSave={handleCreateMenu} onClose={() => setShowCreateModal(false)} />
       )}
     </div>
   );
@@ -595,9 +791,7 @@ function StatusDropdown({ status, onChange }: { status: string; onChange: (s: st
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div className="absolute top-full left-0 mt-1 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-20 min-w-[120px]">
             {opts.map(o => (
-              <button key={o} onClick={() => { onChange(o); setOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 transition-colors capitalize">
-                {o}
-              </button>
+              <button key={o} onClick={() => { onChange(o); setOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 transition-colors capitalize">{o}</button>
             ))}
           </div>
         </>
@@ -606,10 +800,134 @@ function StatusDropdown({ status, onChange }: { status: string; onChange: (s: st
   );
 }
 
+function AddSectionDialog({ brandSections, hasBrand, onAddCustom, onInherit, onClose }: {
+  brandSections: { id: string; brand_id: number; name: string; description: string | null; icon: string | null; color: string | null; sort_order: number }[];
+  hasBrand: boolean;
+  onAddCustom: (name: string) => void;
+  onInherit: (bs: { id: string; brand_id: number; name: string; description: string | null; icon: string | null; color: string | null; sort_order: number }) => void;
+  onClose: () => void;
+}) {
+  const [tab, setTab] = useState<'inherit' | 'custom'>(hasBrand && brandSections.length > 0 ? 'inherit' : 'custom');
+  const [customName, setCustomName] = useState('');
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
+        <div className="flex items-center justify-between p-5 border-b border-slate-100">
+          <h2 className="text-lg font-bold text-slate-900">Add Section</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors">
+            <X className="w-4 h-4 text-slate-400" />
+          </button>
+        </div>
+
+        {hasBrand && (
+          <div className="flex border-b border-slate-100">
+            <button onClick={() => setTab('inherit')} className={`flex-1 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${tab === 'inherit' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+              <Link2 className="w-3.5 h-3.5 inline mr-1.5" />Inherit from Brand
+            </button>
+            <button onClick={() => setTab('custom')} className={`flex-1 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${tab === 'custom' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+              <PenLine className="w-3.5 h-3.5 inline mr-1.5" />Create Custom
+            </button>
+          </div>
+        )}
+
+        <div className="p-5">
+          {tab === 'inherit' ? (
+            brandSections.length === 0 ? (
+              <div className="text-center py-6">
+                <Layers className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                <p className="text-sm text-slate-500">No brand sections available</p>
+                <p className="text-xs text-slate-400 mt-1">All brand sections are already in this menu, or none have been created yet.</p>
+                <button onClick={() => setTab('custom')} className="mt-3 text-sm text-blue-600 hover:text-blue-800 font-medium">
+                  Create a custom section instead
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                {brandSections.map(bs => (
+                  <button
+                    key={bs.id}
+                    onClick={() => onInherit(bs)}
+                    className="w-full text-left p-3 rounded-lg border border-slate-200 hover:border-teal-300 hover:bg-teal-50/30 transition-all group"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-slate-800 group-hover:text-teal-800">{bs.name}</span>
+                      <Link2 className="w-3.5 h-3.5 text-slate-300 group-hover:text-teal-500" />
+                    </div>
+                    {bs.description && <p className="text-xs text-slate-400 mt-1">{bs.description}</p>}
+                  </button>
+                ))}
+              </div>
+            )
+          ) : (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Section Name *</label>
+                <input
+                  autoFocus
+                  type="text"
+                  value={customName}
+                  onChange={e => setCustomName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && customName.trim()) onAddCustom(customName); }}
+                  placeholder="e.g. Entrees, Sides, Beverages"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">Cancel</button>
+                <button onClick={() => onAddCustom(customName)} disabled={!customName.trim()} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg transition-colors">
+                  Add Section
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddItemInline({ onAdd, onCancel }: { onAdd: (name: string, price: string) => void; onCancel: () => void }) {
+  const [name, setName] = useState('');
+  const [price, setPrice] = useState('');
+
+  return (
+    <div className="flex items-center gap-2 px-12 py-2 bg-blue-50/30 border-t border-blue-100">
+      <Package className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+      <input
+        autoFocus
+        type="text"
+        value={name}
+        onChange={e => setName(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter' && name.trim()) onAdd(name, price); if (e.key === 'Escape') onCancel(); }}
+        placeholder="Item name"
+        className="flex-1 px-2 py-1 text-sm border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+      />
+      <div className="flex items-center gap-0.5">
+        <span className="text-xs text-slate-400">$</span>
+        <input
+          type="text"
+          value={price}
+          onChange={e => setPrice(e.target.value.replace(/[^0-9.]/g, ''))}
+          onKeyDown={e => { if (e.key === 'Enter' && name.trim()) onAdd(name, price); }}
+          placeholder="0.00"
+          className="w-16 px-2 py-1 text-sm border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+        />
+      </div>
+      <button onClick={() => { if (name.trim()) onAdd(name, price); }} disabled={!name.trim()} className="px-2 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded transition-colors">
+        Add
+      </button>
+      <button onClick={onCancel} className="p-1 text-slate-400 hover:text-slate-600">
+        <X className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
+
 function CreateMenuModal({ brandId, dayparts, placements, onSave, onClose }: {
   brandId?: number | null;
-  dayparts: DaypartDef[];
-  placements: Placement[];
+  dayparts: { id: string; display_label: string }[];
+  placements: { id: string; name: string }[];
   onSave: (form: { name: string; description: string; menu_type: string; placement_group_id: string; daypart_definition_id: string }) => void;
   onClose: () => void;
 }) {
@@ -625,7 +943,7 @@ function CreateMenuModal({ brandId, dayparts, placements, onSave, onClose }: {
         <div className="flex items-center justify-between p-5 border-b border-slate-100">
           <h2 className="text-lg font-bold text-slate-900">Create Menu</h2>
           <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors">
-            <Eye className="w-4 h-4 text-slate-400" />
+            <X className="w-4 h-4 text-slate-400" />
           </button>
         </div>
         <div className="p-5 space-y-4">

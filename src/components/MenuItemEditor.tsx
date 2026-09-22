@@ -4,9 +4,8 @@ import { X, Star, DollarSign, Package, Tag, Eye } from 'lucide-react';
 interface MenuItemEditorProps {
   item: {
     id: string;
-    product_id: number | null;
+    product_id: string | null;
     display_name: string | null;
-    display_description: string | null;
     price_override: number | null;
     portion_size: string | null;
     is_featured: boolean;
@@ -28,9 +27,7 @@ export function MenuItemEditor({
 }: MenuItemEditorProps) {
   const [displayName, setDisplayName] = useState(item.display_name ?? '');
   const [displayLabel, setDisplayLabel] = useState(item.display_label ?? '');
-  const [displayDescription, setDisplayDescription] = useState(
-    item.display_description ?? ''
-  );
+
   const [priceOverride, setPriceOverride] = useState<string>(
     item.price_override != null ? String(item.price_override) : ''
   );
@@ -48,7 +45,6 @@ export function MenuItemEditor({
     const updates: Record<string, any> = {
       display_name: displayName.trim() || null,
       display_label: displayLabel.trim() || null,
-      display_description: displayDescription.trim() || null,
       price_override: priceOverride !== '' ? parseFloat(priceOverride) : null,
       portion_size: portionSize.trim() || null,
       is_featured: isFeatured,
@@ -130,18 +126,7 @@ export function MenuItemEditor({
                 )}
               </div>
 
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                  Display Description
-                </label>
-                <textarea
-                  value={displayDescription}
-                  onChange={(e) => setDisplayDescription(e.target.value)}
-                  rows={3}
-                  placeholder="Custom description for this menu..."
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
-                />
-              </div>
+
             </div>
           </section>
 
