@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import { formatScheduleDescription } from '../lib/menuScheduleService';
 import { MenuItemEditor } from '../components/MenuItemEditor';
 import MenuScheduleBuilder from '../components/MenuScheduleBuilder';
+import AddItemPanel from '../components/AddItemPanel';
 import type { MenuSchedule, CreateScheduleForm } from '../types/menuScheduling';
 
 interface MenuManagementProps {
@@ -80,6 +81,12 @@ interface MenuItem {
   menu_id: string;
 }
 
+interface ProductInfo {
+  id: string;
+  name: string;
+  price: string | null;
+}
+
 type StatusFilter = 'all' | 'active' | 'draft' | 'archived';
 type ViewLevel = 'list' | 'detail';
 
@@ -107,6 +114,7 @@ export default function MenuManagement({ storeId, brandId, brandName, onBack, on
   const [sectionMenuOpen, setSectionMenuOpen] = useState<string | null>(null);
   const [renamingSection, setRenamingSection] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [productMap, setProductMap] = useState<Record<string, ProductInfo>>({});
 
   useEffect(() => { loadData(); }, [storeId, brandId]);
 
@@ -169,7 +177,9 @@ export default function MenuManagement({ storeId, brandId, brandName, onBack, on
       const { data: itemsData } = await supabase
         .from('scheduled_menu_items').select('*')
         .in('zone_id', secs.map(s => s.id)).order('sort_order');
-      setItems(itemsData ?? []);
+      const loadedItems = itemsData ?? [];
+      setItems(loadedItems);
+      await loadProductNames(loadedItems);
     } else {
       setItems([]);
     }
@@ -201,6 +211,50 @@ export default function MenuManagement({ storeId, brandId, brandName, onBack, on
     const usedIds = new Set(sections.filter(s => s.brand_section_id).map(s => s.brand_section_id));
     return brandSections.filter(bs => !usedIds.has(bs.id));
   }, [brandSections, sections]);
+
+  const loadProductNames = async (menuItems: MenuItem[]) => {
+    const productIds = menuItems.filter(i => i.product_id).map(i => i.product_id!);
+    const missing = productIds.filter(id => !productMap[id]);
+    if (missing.length === 0) return;
+    const unique = [...new Set(missing)];
+    const { data } = await supabase
+      .from('products').select('id, name, attributes')
+      .in('id', unique);
+    if (data) {
+      const newMap = { ...productMap };
+      data.forEach(p => {
+        newMap[p.id] = {
+          id: p.id,
+          name: p.name.replace(/<[^>]*>/g, '').trim(),
+          price: p.attributes?.price ?? null,
+        };
+      });
+      setProductMap(newMap);
+    }
+  };
+
+  const handleAddProductItem = async (sectionId: string, product: { id: string; name: string; price: string | null }) => {
+    if (!selectedMenu) return;
+    const secItems = items.filter(i => i.zone_id === sectionId);
+    const maxOrder = secItems.reduce((max, i) => Math.max(max, i.sort_order), -1);
+    const { data } = await supabase.from('scheduled_menu_items').insert({
+      menu_id: selectedMenu.id,
+      zone_id: sectionId,
+      product_id: product.id,
+      display_name: product.name,
+      sort_order: maxOrder + 1,
+      price_override: product.price ? parseFloat(product.price) : null,
+      is_featured: false,
+    }).select().maybeSingle();
+    if (data) {
+      setItems(prev => [...prev, data]);
+      setProductMap(prev => ({
+        ...prev,
+        [product.id]: { id: product.id, name: product.name, price: product.price },
+      }));
+    }
+    setAddingItemToSection(null);
+  };
 
   // ── Section handlers ──
   const handleAddCustomSection = async (name: string) => {
@@ -532,15 +586,29 @@ export default function MenuManagement({ storeId, brandId, brandName, onBack, on
                             {secItems.length === 0 ? (
                               <p className="px-12 py-3 text-sm text-slate-400 italic">No items in this section</p>
                             ) : (
-                              secItems.map(item => (
+                              secItems.map(item => {
+                                const linkedProduct = item.product_id ? productMap[item.product_id] : null;
+                                return (
                                 <div key={item.id} className="flex items-center group">
                                   <button
                                     onClick={() => setEditingItem(item)}
                                     className="flex-1 flex items-center gap-4 px-12 py-2.5 hover:bg-blue-50/50 transition-colors text-left"
                                   >
-                                    <span className="flex-1 text-sm text-slate-700 group-hover:text-slate-900">
-                                      {item.display_name ?? `Item #${item.sort_order}`}
-                                    </span>
+                                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                                      {linkedProduct ? (
+                                        <Package className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                                      ) : (
+                                        <PenLine className="w-3 h-3 text-slate-300 shrink-0" />
+                                      )}
+                                      <span className="text-sm text-slate-700 group-hover:text-slate-900 truncate">
+                                        {item.display_name ?? linkedProduct?.name ?? `Item #${item.sort_order}`}
+                                      </span>
+                                      {linkedProduct && (
+                                        <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-50 text-blue-500 shrink-0">
+                                          Product
+                                        </span>
+                                      )}
+                                    </div>
                                     {item.is_featured && <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />}
                                     {item.price_override != null && (
                                       <span className="text-xs text-slate-500">${Number(item.price_override).toFixed(2)}</span>
@@ -557,13 +625,18 @@ export default function MenuManagement({ storeId, brandId, brandName, onBack, on
                                     <Trash2 className="w-3 h-3" />
                                   </button>
                                 </div>
-                              ))
+                                );
+                              })
                             )}
 
-                            {/* Add Item inline form or button */}
+                            {/* Add Item panel or button */}
                             {addingItemToSection === sec.id ? (
-                              <AddItemInline
-                                onAdd={(name, price) => handleAddFreeformItem(sec.id, name, price)}
+                              <AddItemPanel
+                                sectionId={sec.id}
+                                menuId={selectedMenu.id}
+                                brandId={selectedMenu.brand_id}
+                                onAddProduct={handleAddProductItem}
+                                onAddFreeform={handleAddFreeformItem}
                                 onCancel={() => setAddingItemToSection(null)}
                               />
                             ) : (
@@ -883,43 +956,6 @@ function AddSectionDialog({ brandSections, hasBrand, onAddCustom, onInherit, onC
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function AddItemInline({ onAdd, onCancel }: { onAdd: (name: string, price: string) => void; onCancel: () => void }) {
-  const [name, setName] = useState('');
-  const [price, setPrice] = useState('');
-
-  return (
-    <div className="flex items-center gap-2 px-12 py-2 bg-blue-50/30 border-t border-blue-100">
-      <Package className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-      <input
-        autoFocus
-        type="text"
-        value={name}
-        onChange={e => setName(e.target.value)}
-        onKeyDown={e => { if (e.key === 'Enter' && name.trim()) onAdd(name, price); if (e.key === 'Escape') onCancel(); }}
-        placeholder="Item name"
-        className="flex-1 px-2 py-1 text-sm border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-      />
-      <div className="flex items-center gap-0.5">
-        <span className="text-xs text-slate-400">$</span>
-        <input
-          type="text"
-          value={price}
-          onChange={e => setPrice(e.target.value.replace(/[^0-9.]/g, ''))}
-          onKeyDown={e => { if (e.key === 'Enter' && name.trim()) onAdd(name, price); }}
-          placeholder="0.00"
-          className="w-16 px-2 py-1 text-sm border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-        />
-      </div>
-      <button onClick={() => { if (name.trim()) onAdd(name, price); }} disabled={!name.trim()} className="px-2 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded transition-colors">
-        Add
-      </button>
-      <button onClick={onCancel} className="p-1 text-slate-400 hover:text-slate-600">
-        <X className="w-3.5 h-3.5" />
-      </button>
     </div>
   );
 }
