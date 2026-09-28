@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Link2, Copy, Check, Mail, Plus, Trash2, Power, PowerOff, Users, Clock, ExternalLink, Key, Eye, EyeOff, RefreshCw, Server, AlertTriangle } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Link2, Copy, Check, Mail, Plus, Trash2, Power, PowerOff, Users, Clock, ExternalLink, Key, Eye, EyeOff, RefreshCw, Server, AlertTriangle, MoreVertical } from 'lucide-react';
 import { IntegrationMagicLinkService, MagicLink, AuthorizedEmail } from '../lib/integrationMagicLinkService';
 
 interface MagicLinkManagerProps {
@@ -19,6 +19,18 @@ export default function MagicLinkManager({ configId }: MagicLinkManagerProps) {
   const [showSecret, setShowSecret] = useState(false);
   const [generatingEndpoint, setGeneratingEndpoint] = useState(false);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    if (menuOpen) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [menuOpen]);
 
   useEffect(() => {
     load();
@@ -55,6 +67,7 @@ export default function MagicLinkManager({ configId }: MagicLinkManagerProps) {
     if (success) {
       setMagicLink({ ...magicLink, is_active: !magicLink.is_active });
       setConfirmingRemove(false);
+      setMenuOpen(false);
     }
   };
 
@@ -137,55 +150,73 @@ export default function MagicLinkManager({ configId }: MagicLinkManagerProps) {
             </div>
             {magicLink && (
               <div className="flex items-center gap-2">
-                {magicLink.is_active ? (
-                  <button
-                    onClick={handleToggleLink}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors bg-green-100 text-green-700 hover:bg-green-200"
-                  >
-                    <Power className="w-4 h-4" />
-                    Active
-                  </button>
+                <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium ${
+                  magicLink.is_active
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-amber-100 text-amber-700'
+                }`}>
+                  {magicLink.is_active
+                    ? <Power className="w-4 h-4" />
+                    : <PowerOff className="w-4 h-4" />}
+                  {magicLink.is_active ? 'Active' : 'Suspended'}
+                </span>
+
+                {confirmingRemove ? (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleRemoveLink}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors bg-red-600 text-white hover:bg-red-700"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Confirm Removal
+                    </button>
+                    <button
+                      onClick={() => setConfirmingRemove(false)}
+                      className="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 ) : (
-                  <>
-                    <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-200 text-slate-600">
-                      <PowerOff className="w-4 h-4" />
-                      Suspended
-                    </span>
-                    {!confirmingRemove ? (
-                      <>
-                        <button
-                          onClick={handleToggleLink}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors bg-green-100 text-green-700 hover:bg-green-200"
-                        >
-                          <Power className="w-4 h-4" />
-                          Activate
-                        </button>
-                        <button
-                          onClick={() => setConfirmingRemove(true)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors bg-red-50 text-red-600 hover:bg-red-100"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          Remove
-                        </button>
-                      </>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={handleRemoveLink}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors bg-red-600 text-white hover:bg-red-700"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          Confirm Removal
-                        </button>
-                        <button
-                          onClick={() => setConfirmingRemove(false)}
-                          className="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors bg-slate-100 text-slate-600 hover:bg-slate-200"
-                        >
-                          Cancel
-                        </button>
+                  <div className="relative" ref={menuRef}>
+                    <button
+                      onClick={() => setMenuOpen(!menuOpen)}
+                      className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-500 transition-colors"
+                      title="Actions"
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </button>
+                    {menuOpen && (
+                      <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-slate-200 rounded-lg shadow-lg z-10 py-1">
+                        {magicLink.is_active ? (
+                          <button
+                            onClick={handleToggleLink}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                          >
+                            <PowerOff className="w-4 h-4 text-amber-600" />
+                            Suspend
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              onClick={handleToggleLink}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                            >
+                              <Power className="w-4 h-4 text-green-600" />
+                              Activate
+                            </button>
+                            <button
+                              onClick={() => { setConfirmingRemove(true); setMenuOpen(false); }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              Remove
+                            </button>
+                          </>
+                        )}
                       </div>
                     )}
-                  </>
+                  </div>
                 )}
               </div>
             )}
