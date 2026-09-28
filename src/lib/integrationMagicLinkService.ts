@@ -365,21 +365,109 @@ export class IntegrationMagicLinkService {
     return { endpointUrl, clientId, clientSecret };
   }
 
-  static async getEndpointCredentials(configId: string): Promise<{ endpointUrl: string | null; clientId: string | null; clientSecret: string | null }> {
+  static async getEndpointCredentials(configId: string): Promise<{
+    endpointUrl: string | null;
+    clientId: string | null;
+    clientSecret: string | null;
+    endpointProtocol: 'http' | 'ftp';
+    ftpHost: string | null;
+    ftpPort: number | null;
+    ftpUsername: string | null;
+    ftpPassword: string | null;
+    ftpRemoteFolder: string | null;
+    ftpFileNaming: 'auto' | 'fixed';
+  }> {
     const { data, error } = await supabase
       .from('integration_source_configs')
-      .select('endpoint_url, client_id, client_secret')
+      .select('endpoint_url, client_id, client_secret, endpoint_protocol, ftp_host, ftp_port, ftp_username, ftp_password, ftp_remote_folder, ftp_file_naming')
       .eq('id', configId)
       .maybeSingle();
 
     if (error || !data) {
-      return { endpointUrl: null, clientId: null, clientSecret: null };
+      return {
+        endpointUrl: null, clientId: null, clientSecret: null,
+        endpointProtocol: 'http',
+        ftpHost: null, ftpPort: null, ftpUsername: null,
+        ftpPassword: null, ftpRemoteFolder: null, ftpFileNaming: 'auto',
+      };
     }
 
     return {
       endpointUrl: data.endpoint_url,
       clientId: data.client_id,
       clientSecret: data.client_secret,
+      endpointProtocol: data.endpoint_protocol ?? 'http',
+      ftpHost: data.ftp_host,
+      ftpPort: data.ftp_port,
+      ftpUsername: data.ftp_username,
+      ftpPassword: data.ftp_password,
+      ftpRemoteFolder: data.ftp_remote_folder,
+      ftpFileNaming: data.ftp_file_naming ?? 'auto',
     };
+  }
+
+  static async setEndpointProtocol(configId: string, protocol: 'http' | 'ftp'): Promise<boolean> {
+    const { error } = await supabase
+      .from('integration_source_configs')
+      .update({ endpoint_protocol: protocol })
+      .eq('id', configId);
+
+    if (error) {
+      console.error('Error setting endpoint protocol:', error);
+      return false;
+    }
+    return true;
+  }
+
+  static async saveFtpCredentials(configId: string, creds: {
+    host: string;
+    port: number;
+    username: string;
+    password: string;
+    remoteFolder: string;
+    fileNaming: 'auto' | 'fixed';
+  }): Promise<boolean> {
+    const { error } = await supabase
+      .from('integration_source_configs')
+      .update({
+        ftp_host: creds.host,
+        ftp_port: creds.port,
+        ftp_username: creds.username,
+        ftp_password: creds.password,
+        ftp_remote_folder: creds.remoteFolder,
+        ftp_file_naming: creds.fileNaming,
+        endpoint_protocol: 'ftp',
+      })
+      .eq('id', configId);
+
+    if (error) {
+      console.error('Error saving FTP credentials:', error);
+      return false;
+    }
+    return true;
+  }
+
+  static async removeEndpoint(configId: string): Promise<boolean> {
+    const { error } = await supabase
+      .from('integration_source_configs')
+      .update({
+        endpoint_url: null,
+        client_id: null,
+        client_secret: null,
+        endpoint_protocol: 'http',
+        ftp_host: null,
+        ftp_port: 21,
+        ftp_username: null,
+        ftp_password: null,
+        ftp_remote_folder: null,
+        ftp_file_naming: 'auto',
+      })
+      .eq('id', configId);
+
+    if (error) {
+      console.error('Error removing endpoint:', error);
+      return false;
+    }
+    return true;
   }
 }
