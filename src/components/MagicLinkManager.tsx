@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link2, Copy, Check, Mail, Plus, Trash2, Power, PowerOff, Users, Clock, ExternalLink, Key, Eye, EyeOff, RefreshCw, Server } from 'lucide-react';
+import { Link2, Copy, Check, Mail, Plus, Trash2, Power, PowerOff, Users, Clock, ExternalLink, Key, Eye, EyeOff, RefreshCw, Server, AlertTriangle } from 'lucide-react';
 import { IntegrationMagicLinkService, MagicLink, AuthorizedEmail } from '../lib/integrationMagicLinkService';
 
 interface MagicLinkManagerProps {
@@ -18,6 +18,7 @@ export default function MagicLinkManager({ configId }: MagicLinkManagerProps) {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [showSecret, setShowSecret] = useState(false);
   const [generatingEndpoint, setGeneratingEndpoint] = useState(false);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
 
   useEffect(() => {
     load();
@@ -53,6 +54,17 @@ export default function MagicLinkManager({ configId }: MagicLinkManagerProps) {
     const success = await IntegrationMagicLinkService.toggleMagicLink(magicLink.id, !magicLink.is_active);
     if (success) {
       setMagicLink({ ...magicLink, is_active: !magicLink.is_active });
+      setConfirmingRemove(false);
+    }
+  };
+
+  const handleRemoveLink = async () => {
+    if (!magicLink) return;
+    const success = await IntegrationMagicLinkService.removeMagicLink(magicLink.id);
+    if (success) {
+      setMagicLink(null);
+      setEmails([]);
+      setConfirmingRemove(false);
     }
   };
 
@@ -124,17 +136,52 @@ export default function MagicLinkManager({ configId }: MagicLinkManagerProps) {
               <h3 className="font-semibold text-slate-900">Magic Link</h3>
             </div>
             {magicLink && (
-              <button
-                onClick={handleToggleLink}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  magicLink.is_active
-                    ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {magicLink.is_active ? <Power className="w-4 h-4" /> : <PowerOff className="w-4 h-4" />}
-                {magicLink.is_active ? 'Active' : 'Suspended'}
-              </button>
+              <div className="flex items-center gap-2">
+                {magicLink.is_active ? (
+                  <button
+                    onClick={handleToggleLink}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors bg-green-100 text-green-700 hover:bg-green-200"
+                  >
+                    <Power className="w-4 h-4" />
+                    Active
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={handleToggleLink}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors bg-green-100 text-green-700 hover:bg-green-200"
+                    >
+                      <Power className="w-4 h-4" />
+                      Activate
+                    </button>
+                    {!confirmingRemove ? (
+                      <button
+                        onClick={() => setConfirmingRemove(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors bg-red-50 text-red-600 hover:bg-red-100"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Remove
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handleRemoveLink}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors bg-red-600 text-white hover:bg-red-700"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Confirm Removal
+                        </button>
+                        <button
+                          onClick={() => setConfirmingRemove(false)}
+                          className="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -152,7 +199,7 @@ export default function MagicLinkManager({ configId }: MagicLinkManagerProps) {
                 Generate Magic Link
               </button>
             </div>
-          ) : (
+          ) : magicLink.is_active ? (
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <div className="flex-1 flex items-center gap-2 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg">
@@ -171,6 +218,16 @@ export default function MagicLinkManager({ configId }: MagicLinkManagerProps) {
               <p className="text-xs text-slate-500">
                 Share this link with authorized users. They will need to verify their email address to upload files.
               </p>
+            </div>
+          ) : (
+            <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-amber-900">This magic link is suspended</p>
+                <p className="text-sm text-amber-700 mt-1">
+                  The upload page is inaccessible while suspended. You can reactivate the link to restore access, or remove it permanently. Removing the link also deletes all authorized emails. A new link can be generated afterward.
+                </p>
+              </div>
             </div>
           )}
         </div>

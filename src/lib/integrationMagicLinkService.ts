@@ -108,6 +108,19 @@ export class IntegrationMagicLinkService {
     return true;
   }
 
+  static async removeMagicLink(linkId: string): Promise<boolean> {
+    const { error } = await supabase
+      .from('integration_magic_links')
+      .delete()
+      .eq('id', linkId);
+
+    if (error) {
+      console.error('Error removing magic link:', error);
+      return false;
+    }
+    return true;
+  }
+
   static async getAuthorizedEmails(linkId: string): Promise<AuthorizedEmail[]> {
     const { data, error } = await supabase
       .from('integration_authorized_emails')
