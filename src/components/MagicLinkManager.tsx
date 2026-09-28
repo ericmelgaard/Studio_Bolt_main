@@ -147,21 +147,27 @@ export default function MagicLinkManager({ configId }: MagicLinkManagerProps) {
                   </button>
                 ) : (
                   <>
-                    <button
-                      onClick={handleToggleLink}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors bg-green-100 text-green-700 hover:bg-green-200"
-                    >
-                      <Power className="w-4 h-4" />
-                      Activate
-                    </button>
+                    <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-200 text-slate-600">
+                      <PowerOff className="w-4 h-4" />
+                      Suspended
+                    </span>
                     {!confirmingRemove ? (
-                      <button
-                        onClick={() => setConfirmingRemove(true)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors bg-red-50 text-red-600 hover:bg-red-100"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        Remove
-                      </button>
+                      <>
+                        <button
+                          onClick={handleToggleLink}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors bg-green-100 text-green-700 hover:bg-green-200"
+                        >
+                          <Power className="w-4 h-4" />
+                          Activate
+                        </button>
+                        <button
+                          onClick={() => setConfirmingRemove(true)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors bg-red-50 text-red-600 hover:bg-red-100"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Remove
+                        </button>
+                      </>
                     ) : (
                       <div className="flex items-center gap-2">
                         <button
