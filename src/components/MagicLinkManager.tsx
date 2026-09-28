@@ -237,24 +237,105 @@ export default function MagicLinkManager({ configId }: MagicLinkManagerProps) {
               </button>
             </div>
           ) : magicLink.is_active ? (
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <div className="flex-1 flex items-center gap-2 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg">
-                  <span className="text-sm text-slate-600 font-mono truncate">
-                    {`${window.location.origin}/upload/${magicLink.link_token.substring(0, 12)}...`}
+            <div className="space-y-5">
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="flex-1 flex items-center gap-2 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg">
+                    <span className="text-sm text-slate-600 font-mono truncate">
+                      {`${window.location.origin}/upload/${magicLink.link_token.substring(0, 12)}...`}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleCopyLink}
+                    className="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors whitespace-nowrap"
+                  >
+                    {copiedLink ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                    {copiedLink ? 'Copied!' : 'Copy'}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Share this link with authorized users. They will need to verify their email address to upload files.
+                </p>
+              </div>
+
+              <div className="border-t border-slate-100 pt-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Users className="w-4 h-4 text-slate-500" />
+                  <h4 className="text-sm font-semibold text-slate-700">Authorized Emails</h4>
+                  <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full font-medium">
+                    {emails.filter(e => e.is_active).length} active
                   </span>
                 </div>
-                <button
-                  onClick={handleCopyLink}
-                  className="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors whitespace-nowrap"
-                >
-                  {copiedLink ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  {copiedLink ? 'Copied!' : 'Copy'}
-                </button>
+
+                <div className="flex gap-2 mb-3">
+                  <div className="relative flex-1">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      type="email"
+                      value={newEmail}
+                      onChange={(e) => setNewEmail(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAddEmail()}
+                      placeholder="Add email address..."
+                      className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <button
+                    onClick={handleAddEmail}
+                    disabled={!newEmail.trim()}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add
+                  </button>
+                </div>
+
+                {emails.length === 0 ? (
+                  <p className="text-sm text-slate-500 text-center py-4">No authorized emails yet. Add emails to allow users to upload via the magic link.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {emails.map(email => (
+                      <div key={email.id} className="flex items-center justify-between px-3 py-2.5 bg-slate-50 rounded-lg border border-slate-100">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className={`p-1.5 rounded-lg ${email.is_active ? 'bg-green-100' : 'bg-slate-200'}`}>
+                            <Mail className={`w-4 h-4 ${email.is_active ? 'text-green-600' : 'text-slate-400'}`} />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-slate-900 truncate">{email.email}</div>
+                            <div className="flex items-center gap-2 text-xs text-slate-500">
+                              <span>Added {new Date(email.created_at).toLocaleDateString()}</span>
+                              {email.last_used_at && (
+                                <>
+                                  <span>·</span>
+                                  <span className="flex items-center gap-1">
+                                    <Clock className="w-3 h-3" />
+                                    Last used {new Date(email.last_used_at).toLocaleDateString()}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <button
+                            onClick={() => handleToggleEmail(email.id, email.is_active)}
+                            className={`p-1.5 rounded-lg transition-colors ${email.is_active ? 'hover:bg-green-100 text-green-600' : 'hover:bg-amber-100 text-amber-600'}`}
+                            title={email.is_active ? 'Suspend' : 'Reactivate'}
+                          >
+                            {email.is_active ? <Power className="w-4 h-4" /> : <PowerOff className="w-4 h-4" />}
+                          </button>
+                          <button
+                            onClick={() => handleRemoveEmail(email.id)}
+                            className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 transition-colors"
+                            title="Remove"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              <p className="text-xs text-slate-500">
-                Share this link with authorized users. They will need to verify their email address to upload files.
-              </p>
             </div>
           ) : (
             <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
@@ -269,94 +350,6 @@ export default function MagicLinkManager({ configId }: MagicLinkManagerProps) {
           )}
         </div>
       </div>
-
-      {/* Authorized Emails Section */}
-      {magicLink && (
-        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
-            <div className="flex items-center gap-2">
-              <Users className="w-5 h-5 text-blue-600" />
-              <h3 className="font-semibold text-slate-900">Authorized Emails</h3>
-              <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full font-medium">
-                {emails.filter(e => e.is_active).length} active
-              </span>
-            </div>
-          </div>
-
-          <div className="p-5">
-            {/* Add Email */}
-            <div className="flex gap-2 mb-4">
-              <div className="relative flex-1">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input
-                  type="email"
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddEmail()}
-                  placeholder="Add email address..."
-                  className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-              <button
-                onClick={handleAddEmail}
-                disabled={!newEmail.trim()}
-                className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
-              >
-                <Plus className="w-4 h-4" />
-                Add
-              </button>
-            </div>
-
-            {/* Email List */}
-            {emails.length === 0 ? (
-              <p className="text-sm text-slate-500 text-center py-6">No authorized emails yet. Add emails to allow users to upload via the magic link.</p>
-            ) : (
-              <div className="space-y-2">
-                {emails.map(email => (
-                  <div key={email.id} className="flex items-center justify-between px-4 py-3 bg-slate-50 rounded-lg border border-slate-100">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className={`p-1.5 rounded-lg ${email.is_active ? 'bg-green-100' : 'bg-slate-200'}`}>
-                        <Mail className={`w-4 h-4 ${email.is_active ? 'text-green-600' : 'text-slate-400'}`} />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium text-slate-900 truncate">{email.email}</div>
-                        <div className="flex items-center gap-2 text-xs text-slate-500">
-                          <span>Added {new Date(email.created_at).toLocaleDateString()}</span>
-                          {email.last_used_at && (
-                            <>
-                              <span>·</span>
-                              <span className="flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                Last used {new Date(email.last_used_at).toLocaleDateString()}
-                              </span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <button
-                        onClick={() => handleToggleEmail(email.id, email.is_active)}
-                        className={`p-1.5 rounded-lg transition-colors ${email.is_active ? 'hover:bg-green-100 text-green-600' : 'hover:bg-amber-100 text-amber-600'}`}
-                        title={email.is_active ? 'Suspend' : 'Reactivate'}
-                      >
-                        {email.is_active ? <Power className="w-4 h-4" /> : <PowerOff className="w-4 h-4" />}
-                      </button>
-                      <button
-                        onClick={() => handleRemoveEmail(email.id)}
-                        className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 transition-colors"
-                        title="Remove"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Endpoint Section */}
       <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
