@@ -8,6 +8,12 @@ export default {
         sans: ['Rubik', 'Arial', 'Helvetica', 'sans-serif'],
       },
       colors: {
+        // Style guide tokens (CLAUDE.md): primary action + brand header
+        brand: {
+          DEFAULT: '#00adf0',
+          dark: '#008ec5',
+          navy: '#002e5e',
+        },
         wand: {
           magenta: {
             50: '#fdf4fd',

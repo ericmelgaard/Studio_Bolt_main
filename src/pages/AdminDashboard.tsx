@@ -1,10 +1,15 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
-import { HelpCircle, FileText, Building2, Users, Store, Settings, Monitor, Tag, Package, BarChart3, Layers, Image as ImageIcon, MapPin, Database, Sliders, ChevronDown, Palette, Clock, Cpu, Images, Paintbrush, UtensilsCrossed, Calendar as CalendarIcon } from 'lucide-react';
+import { HelpCircle, FileText, Users, Settings, Monitor, Tag, Package, BarChart3, Layers, Image as ImageIcon, MapPin, Database, Sliders, ChevronDown, Palette, Clock, Cpu, Images, UtensilsCrossed, Calendar as CalendarIcon } from 'lucide-react';
 import NotificationPanel from '../components/NotificationPanel';
 import UserMenu from '../components/UserMenu';
 import Toast from '../components/Toast';
 import { useLocation } from '../hooks/useLocation';
 import { UserProvider } from '../contexts/UserContext';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
+import { setDarkAllowed } from '@/lib/theme';
+import wandMark from '../../public/wandlogo.png';
 
 const SignageManagement = lazy(() => import('./SignageManagement'));
 const ShelfLabelManagement = lazy(() => import('./ShelfLabelManagement'));
@@ -52,7 +57,6 @@ interface UserProfile {
 }
 
 interface AdminDashboardProps {
-  onBack: () => void;
   user: UserProfile;
 }
 
@@ -75,8 +79,17 @@ interface Store {
 
 type ViewType = 'dashboard' | 'signage' | 'labels' | 'products' | 'resources' | 'themes' | 'themes-beta' | 'theme-builder-beta' | 'integration' | 'integration-dashboard' | 'integration-access' | 'wand-templates' | 'wand-mapper' | 'integration-sources' | 'core-attributes' | 'wand-products' | 'users' | 'edit-user' | 'dayparts' | 'sites-beta' | 'devices-displays' | 'display-types' | 'asset-library' | 'brands' | 'brand-menus' | 'menu-management' | 'menu-calendar' | 'station-coverage' | 'station-scheduling';
 
-export default function AdminDashboard({ onBack, user }: AdminDashboardProps) {
-  const { location, setLocation, getLocationDisplay, resetLocation } = useLocation('admin', user.id);
+type MenuId = 'setup' | 'control' | 'access' | 'wand' | 'beta';
+
+// Views restyled for dark mode; every other view renders light until it's rebuilt
+const DARK_READY_VIEWS: ViewType[] = ['dashboard'];
+
+function Spinner() {
+  return <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-600 dark:border-sky-400"></div>;
+}
+
+export default function AdminDashboard({ user }: AdminDashboardProps) {
+  const { location, setLocation, resetLocation } = useLocation('admin', user.id);
   const [showLocationSelector, setShowLocationSelector] = useState(false);
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
   const [showAddUserModal, setShowAddUserModal] = useState(false);
@@ -90,7 +103,6 @@ export default function AdminDashboard({ onBack, user }: AdminDashboardProps) {
   const [selectedStore, setSelectedStore] = useState<Store | null>(null);
 
   // Clear location on mount for unrestricted admin users ONLY if no location is set
-  // This allows admins to maintain their location when switching roles
   useEffect(() => {
     if (!user.concept_id && !user.company_id && !user.store_id) {
       // Only reset if no location is currently set
@@ -100,19 +112,10 @@ export default function AdminDashboard({ onBack, user }: AdminDashboardProps) {
     }
   }, []);
 
-  // Force light mode for admin dashboard
+  // Only allow dark mode on views that have dark styles
   useEffect(() => {
-    const root = document.documentElement;
-    const hadDarkClass = root.classList.contains('dark');
-
-    root.classList.remove('dark');
-
-    return () => {
-      if (hadDarkClass) {
-        root.classList.add('dark');
-      }
-    };
-  }, []);
+    setDarkAllowed(DARK_READY_VIEWS.includes(currentView));
+  }, [currentView]);
 
   // Sync local state with global location context on mount and location changes
   useEffect(() => {
@@ -122,65 +125,99 @@ export default function AdminDashboard({ onBack, user }: AdminDashboardProps) {
   }, [location]);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [activeMenu, setActiveMenu] = useState<'setup' | 'control' | 'access' | 'wand' | 'beta' | null>(null);
+  const [activeMenu, setActiveMenu] = useState<MenuId | null>(null);
 
-  const navigationMenus = {
-    setup: [
-      { id: 'sites-beta' as ViewType, label: 'Location Manager', icon: MapPin },
-      { id: 'users' as ViewType, label: 'Users', icon: Users },
-      { id: 'devices-displays' as ViewType, label: 'Devices & Displays', icon: Cpu },
-      { id: 'display-types' as ViewType, label: 'Display Types', icon: Layers },
-    ],
-    control: [
-      { id: 'brands' as ViewType, label: 'Brands', icon: UtensilsCrossed },
-      { id: 'menu-management' as ViewType, label: 'Menu Management', icon: Layers },
-      { id: 'menu-calendar' as ViewType, label: 'Schedule Calendar', icon: CalendarIcon },
-      { id: 'station-coverage' as ViewType, label: 'Station Coverage', icon: MapPin },
-      { id: 'station-scheduling' as ViewType, label: 'Station Scheduling', icon: CalendarIcon },
-      { id: 'signage' as ViewType, label: 'Signage', icon: Monitor },
-      { id: 'labels' as ViewType, label: 'Labels', icon: Tag },
-      { id: 'products' as ViewType, label: 'Products', icon: Package },
-      { id: 'resources' as ViewType, label: 'Resources', icon: ImageIcon },
-      { id: 'themes' as ViewType, label: 'Display Themes', icon: Palette },
-    ],
-    access: [
-      { id: 'integration-dashboard' as ViewType, label: 'Dashboard', icon: BarChart3 },
-      { id: 'integration-access' as ViewType, label: 'Access', icon: Settings },
-      { id: 'integration' as ViewType, label: 'Catalog', icon: Layers },
-    ],
-    wand: [
-      { id: 'wand-products' as ViewType, label: 'Product Library', icon: Package },
-      { id: 'integration-sources' as ViewType, label: 'Integration Sources', icon: Database },
-      { id: 'dayparts' as ViewType, label: 'Daypart Manager', icon: Clock },
-      { id: 'core-attributes' as ViewType, label: 'Core Attributes', icon: Sliders },
-      { id: 'wand-templates' as ViewType, label: 'Manage Templates', icon: Layers },
-      { id: 'wand-mapper' as ViewType, label: 'Map Integration Templates', icon: MapPin },
-    ],
-    beta: [
-      { id: 'asset-library' as ViewType, label: 'Asset Library', icon: Images },
-      { id: 'themes-beta' as ViewType, label: 'Display Themes Beta', icon: Palette },
-    ],
-  };
+  const navigationMenus: { id: MenuId; label: string; width: string; extraViews?: ViewType[]; items: { id: ViewType; label: string; icon: typeof Users }[] }[] = [
+    {
+      id: 'setup',
+      label: 'Setup',
+      width: 'w-64',
+      items: [
+        { id: 'sites-beta', label: 'Location Manager', icon: MapPin },
+        { id: 'users', label: 'Users', icon: Users },
+        { id: 'devices-displays', label: 'Devices & Displays', icon: Cpu },
+        { id: 'display-types', label: 'Display Types', icon: Layers },
+      ],
+    },
+    {
+      id: 'control',
+      label: 'Control',
+      width: 'w-64',
+      items: [
+        { id: 'brands', label: 'Brands', icon: UtensilsCrossed },
+        { id: 'menu-management', label: 'Menu Management', icon: Layers },
+        { id: 'menu-calendar', label: 'Schedule Calendar', icon: CalendarIcon },
+        { id: 'station-coverage', label: 'Station Coverage', icon: MapPin },
+        { id: 'station-scheduling', label: 'Station Scheduling', icon: CalendarIcon },
+        { id: 'signage', label: 'Signage', icon: Monitor },
+        { id: 'labels', label: 'Labels', icon: Tag },
+        { id: 'products', label: 'Products', icon: Package },
+        { id: 'resources', label: 'Resources', icon: ImageIcon },
+        { id: 'themes', label: 'Display Themes', icon: Palette },
+      ],
+    },
+    {
+      id: 'access',
+      label: 'Access',
+      width: 'w-64',
+      items: [
+        { id: 'integration-dashboard', label: 'Dashboard', icon: BarChart3 },
+        { id: 'integration-access', label: 'Access', icon: Settings },
+        { id: 'integration', label: 'Catalog', icon: Layers },
+      ],
+    },
+    {
+      id: 'wand',
+      label: 'Admin',
+      width: 'w-72',
+      items: [
+        { id: 'wand-products', label: 'Product Library', icon: Package },
+        { id: 'integration-sources', label: 'Integration Sources', icon: Database },
+        { id: 'dayparts', label: 'Daypart Manager', icon: Clock },
+        { id: 'core-attributes', label: 'Core Attributes', icon: Sliders },
+        { id: 'wand-templates', label: 'Manage Templates', icon: Layers },
+        { id: 'wand-mapper', label: 'Map Integration Templates', icon: MapPin },
+      ],
+    },
+    {
+      id: 'beta',
+      label: 'Beta',
+      width: 'w-72',
+      extraViews: ['theme-builder-beta'],
+      items: [
+        { id: 'asset-library', label: 'Asset Library', icon: Images },
+        { id: 'themes-beta', label: 'Display Themes Beta', icon: Palette },
+      ],
+    },
+  ];
+
+  const currentContext = selectedStore?.name ?? selectedCompany?.name ?? selectedConcept?.name;
 
   return (
     <UserProvider user={user}>
-      <div className="min-h-screen bg-slate-50">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Top Header */}
-      <header className="h-16 bg-white border-b border-slate-200 sticky top-0 z-40">
+      <header className="h-16 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
         <div className="h-full flex items-center justify-between px-6">
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-3">
               <img
                 src="https://cdn11.bigcommerce.com/s-o1xg0nrulj/images/stencil/175x50/wand-logo_horizontal_transp_full-color_navy_1711647134__61951.original.png"
                 alt="WAND"
-                className="h-8"
+                className="h-8 dark:hidden"
+              />
+              {/* No white wordmark yet; the mark reads on dark backgrounds */}
+              <img
+                src={wandMark}
+                alt="WAND"
+                className="h-8 hidden dark:block"
               />
               <div className="flex items-center gap-2">
-                <span className="text-slate-400">|</span>
-                <span className="text-base font-semibold text-[#002e5e]" style={{ fontFamily: 'Rubik, Arial, Helvetica, sans-serif' }}>Admin</span>
+                <span className="text-gray-400 dark:text-gray-500">|</span>
+                <span className="text-base font-semibold text-brand-navy dark:text-white">Admin</span>
               </div>
             </div>
-            <Suspense fallback={<div className="w-48 h-10 bg-slate-100 rounded-lg animate-pulse"></div>}>
+            <Suspense fallback={<div className="w-48 h-10 bg-gray-100 dark:bg-gray-700 rounded-lg animate-pulse"></div>}>
               <HeaderNavigation
                 userId={user.id}
                 role="admin"
@@ -192,217 +229,74 @@ export default function AdminDashboard({ onBack, user }: AdminDashboardProps) {
             </Suspense>
           </div>
           <div className="flex items-center gap-1">
-            <button
-              className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-              title="Help"
-            >
-              <HelpCircle className="w-5 h-5 text-[#00adf0]" />
-            </button>
-            <button
-              className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-              title="Documentation"
-            >
-              <FileText className="w-5 h-5 text-[#00adf0]" />
-            </button>
+            <Button variant="ghost" size="icon" title="Help" aria-label="Help">
+              <HelpCircle className="!h-5 !w-5 text-brand" />
+            </Button>
+            <Button variant="ghost" size="icon" title="Documentation" aria-label="Documentation">
+              <FileText className="!h-5 !w-5 text-brand" />
+            </Button>
             <NotificationPanel />
-            <UserMenu role="admin" user={user} onBackToRoles={onBack} />
+            <UserMenu user={user} />
           </div>
         </div>
       </header>
 
       {/* Horizontal Navigation Menu */}
-      <nav className="bg-white border-b border-slate-200 sticky top-16 z-30">
+      <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-16 z-30">
         <div className="px-6 flex items-center gap-1">
-          {/* Setup Menu */}
-          <div className="relative">
-            <button
-              onClick={() => setActiveMenu(activeMenu === 'setup' ? null : 'setup')}
-              className={`px-4 py-3 text-sm font-medium transition-colors flex items-center gap-1 ${
-                activeMenu === 'setup' || ['sites-beta', 'users', 'devices-displays'].includes(currentView)
-                  ? 'text-[#00adf0] border-b-2 border-[#00adf0]'
-                  : 'text-[#002e5e] hover:text-[#00adf0]'
-              }`}
-            >
-              Setup
-              <ChevronDown className="w-4 h-4" />
-            </button>
-            {activeMenu === 'setup' && (
-              <div className="absolute top-full left-0 mt-0 w-64 bg-white rounded-b-lg shadow-lg border border-slate-200 py-1 z-50">
-                {navigationMenus.setup.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => {
-                        setCurrentView(item.id);
-                        setActiveMenu(null);
-                      }}
-                      className={`w-full text-left px-4 py-3 text-sm hover:bg-slate-50 transition-colors flex items-center gap-3 ${
-                        currentView === item.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
-                      }`}
-                    >
-                      <Icon className="w-5 h-5" />
-                      <span>{item.label}</span>
-                    </button>
-                  );
-                })}
+          {navigationMenus.map((menu) => {
+            const isOpen = activeMenu === menu.id;
+            const isCurrent =
+              menu.items.some((item) => item.id === currentView) || !!menu.extraViews?.includes(currentView);
+            return (
+              <div key={menu.id} className="relative">
+                <button
+                  onClick={() => setActiveMenu(isOpen ? null : menu.id)}
+                  aria-expanded={isOpen}
+                  className={cn(
+                    'px-4 py-3 text-sm font-medium transition-colors flex items-center gap-1 border-b-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-500',
+                    isOpen || isCurrent
+                      ? 'text-sky-600 border-sky-600 dark:text-sky-400 dark:border-sky-400'
+                      : 'text-brand-navy border-transparent hover:text-sky-600 dark:text-gray-300 dark:hover:text-sky-400'
+                  )}
+                >
+                  {menu.label}
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+                {isOpen && (
+                  <div className={cn('absolute top-full left-0 mt-0 bg-white dark:bg-gray-800 rounded-b-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-50', menu.width)}>
+                    {menu.items.map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => {
+                            setCurrentView(item.id);
+                            setActiveMenu(null);
+                          }}
+                          className={cn(
+                            'w-full text-left px-4 py-3 text-sm transition-colors flex items-center gap-3',
+                            currentView === item.id
+                              ? 'bg-sky-50 text-sky-700 font-medium dark:bg-sky-900/30 dark:text-sky-300'
+                              : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700'
+                          )}
+                        >
+                          <Icon className="h-5 w-5" />
+                          <span>{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-
-          {/* Control Menu */}
-          <div className="relative">
-            <button
-              onClick={() => setActiveMenu(activeMenu === 'control' ? null : 'control')}
-              className={`px-4 py-3 text-sm font-medium transition-colors flex items-center gap-1 ${
-                activeMenu === 'control' || ['signage', 'labels', 'products', 'resources', 'themes', 'brands', 'menu-management', 'menu-calendar', 'station-coverage', 'station-scheduling'].includes(currentView)
-                  ? 'text-[#00adf0] border-b-2 border-[#00adf0]'
-                  : 'text-[#002e5e] hover:text-[#00adf0]'
-              }`}
-            >
-              Control
-              <ChevronDown className="w-4 h-4" />
-            </button>
-            {activeMenu === 'control' && (
-              <div className="absolute top-full left-0 mt-0 w-64 bg-white rounded-b-lg shadow-lg border border-slate-200 py-1 z-50">
-                {navigationMenus.control.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => {
-                        setCurrentView(item.id);
-                        setActiveMenu(null);
-                      }}
-                      className={`w-full text-left px-4 py-3 text-sm hover:bg-slate-50 transition-colors flex items-center gap-3 ${
-                        currentView === item.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
-                      }`}
-                    >
-                      <Icon className="w-5 h-5" />
-                      <span>{item.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Access Menu */}
-          <div className="relative">
-            <button
-              onClick={() => setActiveMenu(activeMenu === 'access' ? null : 'access')}
-              className={`px-4 py-3 text-sm font-medium transition-colors flex items-center gap-1 ${
-                activeMenu === 'access' || ['integration-dashboard', 'integration-access', 'integration'].includes(currentView)
-                  ? 'text-[#00adf0] border-b-2 border-[#00adf0]'
-                  : 'text-[#002e5e] hover:text-[#00adf0]'
-              }`}
-            >
-              Access
-              <ChevronDown className="w-4 h-4" />
-            </button>
-            {activeMenu === 'access' && (
-              <div className="absolute top-full left-0 mt-0 w-64 bg-white rounded-b-lg shadow-lg border border-slate-200 py-1 z-50">
-                {navigationMenus.access.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => {
-                        setCurrentView(item.id);
-                        setActiveMenu(null);
-                      }}
-                      className={`w-full text-left px-4 py-3 text-sm hover:bg-slate-50 transition-colors flex items-center gap-3 ${
-                        currentView === item.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
-                      }`}
-                    >
-                      <Icon className="w-5 h-5" />
-                      <span>{item.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Wand Menu */}
-          <div className="relative">
-            <button
-              onClick={() => setActiveMenu(activeMenu === 'wand' ? null : 'wand')}
-              className={`px-4 py-3 text-sm font-medium transition-colors flex items-center gap-1 ${
-                activeMenu === 'wand' || ['wand-products', 'integration-sources', 'dayparts', 'core-attributes', 'wand-templates', 'wand-mapper'].includes(currentView)
-                  ? 'text-[#00adf0] border-b-2 border-[#00adf0]'
-                  : 'text-[#002e5e] hover:text-[#00adf0]'
-              }`}
-            >
-              Admin
-              <ChevronDown className="w-4 h-4" />
-            </button>
-            {activeMenu === 'wand' && (
-              <div className="absolute top-full left-0 mt-0 w-72 bg-white rounded-b-lg shadow-lg border border-slate-200 py-1 z-50">
-                {navigationMenus.wand.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => {
-                        setCurrentView(item.id);
-                        setActiveMenu(null);
-                      }}
-                      className={`w-full text-left px-4 py-3 text-sm hover:bg-slate-50 transition-colors flex items-center gap-3 ${
-                        currentView === item.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
-                      }`}
-                    >
-                      <Icon className="w-5 h-5" />
-                      <span>{item.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Beta Menu */}
-          <div className="relative">
-            <button
-              onClick={() => setActiveMenu(activeMenu === 'beta' ? null : 'beta')}
-              className={`px-4 py-3 text-sm font-medium transition-colors flex items-center gap-1 ${
-                activeMenu === 'beta' || ['asset-library', 'themes-beta', 'theme-builder-beta'].includes(currentView)
-                  ? 'text-[#00adf0] border-b-2 border-[#00adf0]'
-                  : 'text-[#002e5e] hover:text-[#00adf0]'
-              }`}
-            >
-              Beta
-              <ChevronDown className="w-4 h-4" />
-            </button>
-            {activeMenu === 'beta' && (
-              <div className="absolute top-full left-0 mt-0 w-72 bg-white rounded-b-lg shadow-lg border border-slate-200 py-1 z-50">
-                {navigationMenus.beta.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => {
-                        setCurrentView(item.id);
-                        setActiveMenu(null);
-                      }}
-                      className={`w-full text-left px-4 py-3 text-sm hover:bg-slate-50 transition-colors flex items-center gap-3 ${
-                        currentView === item.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
-                      }`}
-                    >
-                      <Icon className="w-5 h-5" />
-                      <span>{item.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+            );
+          })}
         </div>
       </nav>
 
       {/* Full-Screen Views (no padding) */}
       {currentView === 'theme-builder-beta' && themeContext && (
-        <Suspense fallback={<div className="flex items-center justify-center h-screen"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
+        <Suspense fallback={<div className="flex items-center justify-center h-screen"><Spinner /></div>}>
           <ThemeBuilderBeta
             themeId={themeContext.themeId}
             themeName={themeContext.themeName}
@@ -417,7 +311,7 @@ export default function AdminDashboard({ onBack, user }: AdminDashboardProps) {
       {/* Main Content Area (with padding) */}
       {currentView !== 'theme-builder-beta' && (
         <main className="p-6">
-          <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
+          <Suspense fallback={<div className="flex items-center justify-center h-64"><Spinner /></div>}>
             {currentView === 'signage' && <SignageManagement onBack={() => setCurrentView('dashboard')} />}
             {currentView === 'labels' && <ShelfLabelManagement onBack={() => setCurrentView('dashboard')} />}
             {currentView === 'products' && <ProductManagement showBackButton={false} />}
@@ -498,37 +392,41 @@ export default function AdminDashboard({ onBack, user }: AdminDashboardProps) {
 
             {currentView === 'dashboard' && (
               <div className="max-w-7xl mx-auto">
-                <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-8">
-                  <h2 className="text-2xl font-bold text-slate-900 mb-4">
-                    System Administration
-                  </h2>
-                  <p className="text-slate-600 mb-6">
-                    Configure system-wide settings and access support features.
-                  </p>
+                <Card>
+                  <CardHeader className="p-8 pb-6">
+                    <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">System administration</h2>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      Configure system-wide settings and access support features.
+                    </p>
+                  </CardHeader>
+                  <CardContent className="p-8 pt-0">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {[
+                        { title: 'Users & access', description: 'Manage user accounts and permissions' },
+                        { title: 'System config', description: 'Configure global system settings' },
+                        { title: 'Support tools', description: 'Access diagnostic and support features' },
+                      ].map((tile) => (
+                        <Card
+                          key={tile.title}
+                          className="rounded-lg shadow-none bg-gray-50 dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
+                        >
+                          <CardHeader>
+                            <CardTitle className="text-base">{tile.title}</CardTitle>
+                            <CardDescription>{tile.description}</CardDescription>
+                          </CardHeader>
+                        </Card>
+                      ))}
+                    </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="p-6 bg-slate-50 rounded-lg border border-slate-200 hover:border-slate-300 transition-colors">
-                      <h3 className="font-semibold text-slate-900 mb-2">Users & Access</h3>
-                      <p className="text-slate-600 text-sm">Manage user accounts and permissions</p>
-                    </div>
-                    <div className="p-6 bg-slate-50 rounded-lg border border-slate-200 hover:border-slate-300 transition-colors">
-                      <h3 className="font-semibold text-slate-900 mb-2">System Config</h3>
-                      <p className="text-slate-600 text-sm">Configure global system settings</p>
-                    </div>
-                    <div className="p-6 bg-slate-50 rounded-lg border border-slate-200 hover:border-slate-300 transition-colors">
-                      <h3 className="font-semibold text-slate-900 mb-2">Support Tools</h3>
-                      <p className="text-slate-600 text-sm">Access diagnostic and support features</p>
-                    </div>
-                  </div>
-
-                  {(selectedConcept || selectedCompany || selectedStore) && (
-                    <div className="mt-8 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                      <p className="text-sm text-blue-800">
-                        <strong>Current Context:</strong> {selectedStore ? selectedStore.name : selectedCompany ? selectedCompany.name : selectedConcept ? selectedConcept.name : 'All Locations'}
-                      </p>
-                    </div>
-                  )}
-                </div>
+                    {currentContext && (
+                      <div className="mt-8 p-4 rounded-lg border bg-sky-50 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800">
+                        <p className="text-sm">
+                          <span className="font-semibold">Current context:</span> {currentContext}
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               </div>
             )}
           </Suspense>
@@ -537,7 +435,7 @@ export default function AdminDashboard({ onBack, user }: AdminDashboardProps) {
 
       {/* Location Selector Modal */}
       {showLocationSelector && (
-        <Suspense fallback={<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div></div>}>
+        <Suspense fallback={<div className="fixed inset-0 bg-black/50 flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div></div>}>
           <LocationSelector
             onClose={() => setShowLocationSelector(false)}
             onSelect={(selectedLocation) => {

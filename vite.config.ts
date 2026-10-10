@@ -7,6 +7,9 @@ import path from 'path';
 export default defineConfig({
   // GitHub Pages serves the app from /<repo>/; BASE_PATH is set by the deploy workflow
   base: process.env.BASE_PATH || '/',
+  resolve: {
+    alias: { '@': path.resolve(__dirname, 'src') },
+  },
   plugins: [
     react(),
     {

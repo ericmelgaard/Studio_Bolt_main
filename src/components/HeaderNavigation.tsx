@@ -245,10 +245,10 @@ export default function HeaderNavigation({
   };
 
   const getCurrentIcon = () => {
-    if (location.store) return getLocationIcon('store', "w-4 h-4 text-slate-600");
-    if (location.company) return getLocationIcon('company', "w-4 h-4 text-slate-600");
-    if (location.concept) return getLocationIcon('concept', "w-4 h-4 text-slate-600");
-    return getLocationIcon('wand', "w-4 h-4 text-slate-600");
+    if (location.store) return getLocationIcon('store', "w-4 h-4 text-gray-600 dark:text-gray-400");
+    if (location.company) return getLocationIcon('company', "w-4 h-4 text-gray-600 dark:text-gray-400");
+    if (location.concept) return getLocationIcon('concept', "w-4 h-4 text-gray-600 dark:text-gray-400");
+    return getLocationIcon('wand', "w-4 h-4 text-gray-600 dark:text-gray-400");
   };
 
   // Quick nav shows different content based on location level
@@ -358,38 +358,38 @@ export default function HeaderNavigation({
       <div className="relative" ref={dropdownRef}>
         <button
           onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-          className="flex items-center gap-2 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg transition-colors"
+          className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
         >
-          <span className="text-base font-semibold text-slate-900 dark:text-slate-100 max-w-[250px] truncate">
+          <span className="text-base font-semibold text-gray-900 dark:text-gray-100 max-w-[250px] truncate">
             {loading ? 'Loading...' : getCurrentDisplayName()}
           </span>
-          {hasDropdownContent && <ChevronDown className="w-4 h-4 text-slate-400 dark:text-slate-500" />}
+          {hasDropdownContent && <ChevronDown className="w-4 h-4 text-gray-400 dark:text-gray-500" />}
         </button>
 
         {/* Desktop Dropdown */}
         {!isMobile && hasDropdownContent && isDropdownOpen && (
-          <div className="absolute top-full left-0 mt-1 w-[360px] bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 transition-all max-h-[32rem] overflow-hidden z-50">
+          <div className="absolute top-full left-0 mt-1 w-[360px] bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 transition-all max-h-[32rem] overflow-hidden z-50">
             {/* Go to Parent Link */}
             {parentLocation && parentName && (
               <button
                 onClick={() => handleSelectLocation(parentLocation)}
-                className="w-full px-4 py-3 text-left flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors border-b border-slate-200 dark:border-slate-700"
+                className="w-full px-4 py-3 text-left flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors border-b border-gray-200 dark:border-gray-700"
               >
-                <ArrowUp className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                <span className="text-sm font-medium text-blue-600 dark:text-blue-400">Go to {parentName}</span>
+                <ArrowUp className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                <span className="text-sm font-medium text-sky-600 dark:text-sky-400">Go to {parentName}</span>
               </button>
             )}
 
             {/* Filter Input */}
-            <div className="p-3 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 sticky top-0">
+            <div className="p-3 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 sticky top-0">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-500" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
                 <input
                   type="text"
                   placeholder="Filter locations..."
                   value={filterText}
                   onChange={(e) => setFilterText(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder:text-slate-400 dark:placeholder:text-slate-500"
+                  className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent placeholder:text-gray-400 dark:placeholder:text-gray-500"
                 />
               </div>
             </div>
@@ -402,8 +402,8 @@ export default function HeaderNavigation({
                     <button
                       key={concept.id}
                       onClick={() => handleSelectLocation({ concept })}
-                      className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-2 ${
-                        location.concept?.id === concept.id ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 font-medium' : 'text-slate-700 dark:text-slate-300'
+                      className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2 ${
+                        location.concept?.id === concept.id ? 'bg-sky-50 dark:bg-sky-900/30 text-sky-700 dark:text-sky-400 font-medium' : 'text-gray-700 dark:text-gray-300'
                       }`}
                     >
                       {getLocationIcon('concept', "w-4 h-4 flex-shrink-0")}
@@ -431,8 +431,8 @@ export default function HeaderNavigation({
                           company
                         });
                       }}
-                      className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-2 ${
-                        location.company?.id === company.id ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 font-medium' : 'text-slate-700 dark:text-slate-300'
+                      className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2 ${
+                        location.company?.id === company.id ? 'bg-sky-50 dark:bg-sky-900/30 text-sky-700 dark:text-sky-400 font-medium' : 'text-gray-700 dark:text-gray-300'
                       }`}
                     >
                       {getLocationIcon('company', "w-4 h-4 flex-shrink-0")}
@@ -448,10 +448,10 @@ export default function HeaderNavigation({
                   {filteredCompaniesWithStores.map((company) => (
                     <div key={company.id}>
                       {/* Company Header (non-clickable) */}
-                      <div className="px-4 py-2 bg-slate-50 dark:bg-slate-700 border-b border-slate-200 dark:border-slate-600">
+                      <div className="px-4 py-2 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
                         <div className="flex items-center gap-2">
-                          {getLocationIcon('company', "w-4 h-4 text-slate-500 dark:text-slate-400")}
-                          <span className="text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wide">
+                          {getLocationIcon('company', "w-4 h-4 text-gray-500 dark:text-gray-400")}
+                          <span className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wide">
                             {company.name}
                           </span>
                         </div>
@@ -478,8 +478,8 @@ export default function HeaderNavigation({
                                   store
                                 });
                               }}
-                              className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-2 ${
-                                location.store?.id === store.id ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 font-medium' : 'text-slate-700 dark:text-slate-300'
+                              className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2 ${
+                                location.store?.id === store.id ? 'bg-sky-50 dark:bg-sky-900/30 text-sky-700 dark:text-sky-400 font-medium' : 'text-gray-700 dark:text-gray-300'
                               }`}
                             >
                               {getLocationIcon('store', "w-4 h-4 flex-shrink-0")}
@@ -498,20 +498,20 @@ export default function HeaderNavigation({
 
       {/* Mobile Full-Screen Modal */}
       {isMobile && hasDropdownContent && isDropdownOpen && (
-        <div className="fixed inset-0 bg-white dark:bg-slate-800 z-50 flex flex-col">
+        <div className="fixed inset-0 bg-white dark:bg-gray-800 z-50 flex flex-col">
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
             <div className="flex items-center gap-2 flex-1 min-w-0">
               {getCurrentIcon()}
-              <span className="text-base font-semibold text-slate-900 dark:text-slate-100 truncate">
+              <span className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
                 Quick Navigation
               </span>
             </div>
             <button
               onClick={handleCloseDropdown}
-              className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors flex-shrink-0"
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors flex-shrink-0"
             >
-              <X className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+              <X className="w-5 h-5 text-gray-600 dark:text-gray-400" />
             </button>
           </div>
 
@@ -519,23 +519,23 @@ export default function HeaderNavigation({
           {parentLocation && parentName && (
             <button
               onClick={() => handleSelectLocation(parentLocation)}
-              className="w-full px-4 py-4 text-left flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors border-b border-slate-200 dark:border-slate-700"
+              className="w-full px-4 py-4 text-left flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors border-b border-gray-200 dark:border-gray-700"
             >
-              <ArrowUp className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-              <span className="text-base font-medium text-blue-600 dark:text-blue-400">Go to {parentName}</span>
+              <ArrowUp className="w-5 h-5 text-sky-600 dark:text-sky-400" />
+              <span className="text-base font-medium text-sky-600 dark:text-sky-400">Go to {parentName}</span>
             </button>
           )}
 
           {/* Filter Input */}
-          <div className="p-4 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 dark:text-slate-500" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500" />
               <input
                 type="text"
                 placeholder="Filter locations..."
                 value={filterText}
                 onChange={(e) => setFilterText(e.target.value)}
-                className="w-full pl-10 pr-3 py-3 text-base border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder:text-slate-400 dark:placeholder:text-slate-500"
+                className="w-full pl-10 pr-3 py-3 text-base border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent placeholder:text-gray-400 dark:placeholder:text-gray-500"
               />
             </div>
           </div>
@@ -548,10 +548,9 @@ export default function HeaderNavigation({
                 <button
                   key={concept.id}
                   onClick={() => handleSelectLocation({ concept })}
-                  className={`w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-3 border-b border-slate-100 dark:border-slate-700 ${
-                    location.concept?.id === concept.id ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 font-medium' : 'text-slate-700 dark:text-slate-300'
+                  className={`w-full min-h-11 text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3 border-b border-gray-100 dark:border-gray-700 ${
+                    location.concept?.id === concept.id ? 'bg-sky-50 dark:bg-sky-900/30 text-sky-700 dark:text-sky-400 font-medium' : 'text-gray-700 dark:text-gray-300'
                   }`}
-                  style={{ minHeight: '44px' }}
                 >
                   {getLocationIcon('concept', "w-5 h-5 flex-shrink-0")}
                   <span className="text-base">{concept.name}</span>
@@ -574,10 +573,9 @@ export default function HeaderNavigation({
                       company
                     });
                   }}
-                  className={`w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-3 border-b border-slate-100 dark:border-slate-700 ${
-                    location.company?.id === company.id ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 font-medium' : 'text-slate-700 dark:text-slate-300'
+                  className={`w-full min-h-11 text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3 border-b border-gray-100 dark:border-gray-700 ${
+                    location.company?.id === company.id ? 'bg-sky-50 dark:bg-sky-900/30 text-sky-700 dark:text-sky-400 font-medium' : 'text-gray-700 dark:text-gray-300'
                   }`}
-                  style={{ minHeight: '44px' }}
                 >
                   {getLocationIcon('company', "w-5 h-5 flex-shrink-0")}
                   <span className="text-base">{company.name}</span>
@@ -588,10 +586,10 @@ export default function HeaderNavigation({
               {showStores && filteredCompaniesWithStores.map((company) => (
                 <div key={company.id}>
                   {/* Company Header (non-clickable) */}
-                  <div className="px-4 py-3 bg-slate-50 dark:bg-slate-700 border-b border-slate-200 dark:border-slate-600 sticky top-0">
+                  <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600 sticky top-0">
                     <div className="flex items-center gap-2">
-                      {getLocationIcon('company', "w-5 h-5 text-slate-500 dark:text-slate-400")}
-                      <span className="text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wide">
+                      {getLocationIcon('company', "w-5 h-5 text-gray-500 dark:text-gray-400")}
+                      <span className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wide">
                         {company.name}
                       </span>
                     </div>
@@ -617,10 +615,9 @@ export default function HeaderNavigation({
                             store
                           });
                         }}
-                        className={`w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-3 border-b border-slate-100 dark:border-slate-700 ${
-                          location.store?.id === store.id ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 font-medium' : 'text-slate-700 dark:text-slate-300'
+                        className={`w-full min-h-11 text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3 border-b border-gray-100 dark:border-gray-700 ${
+                          location.store?.id === store.id ? 'bg-sky-50 dark:bg-sky-900/30 text-sky-700 dark:text-sky-400 font-medium' : 'text-gray-700 dark:text-gray-300'
                         }`}
-                        style={{ minHeight: '44px' }}
                       >
                         {getLocationIcon('store', "w-5 h-5 flex-shrink-0")}
                         <span className="text-base">{store.name}</span>
@@ -636,10 +633,10 @@ export default function HeaderNavigation({
       {/* Map Icon Button - Hidden on mobile */}
       <button
         onClick={onOpenFullNavigator}
-        className="hidden md:flex items-center justify-center p-2 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg transition-colors"
+        className="hidden md:flex items-center justify-center p-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
         title="Open full navigation"
       >
-        <Map className="w-4 h-4" style={{ color: '#00adf0' }} />
+        <Map className="w-4 h-4 text-brand" />
       </button>
 
       {/* Action Button */}

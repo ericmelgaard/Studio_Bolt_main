@@ -8,7 +8,7 @@ const getLocationIcon = (level: 'wand' | 'concept' | 'company' | 'store', classN
   const colorClass = level === 'wand' ? 'text-purple-600' :
                      level === 'concept' ? 'text-blue-600' :
                      level === 'company' ? 'text-green-600' :
-                     'text-red-600';
+                     'text-red-600 dark:text-red-400';
 
   switch (level) {
     case 'wand':
@@ -480,10 +480,10 @@ export default function LocationSelector({ onClose, onSelect, selectedLocation, 
   if (loading) {
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[200] overflow-hidden">
-        <div className="relative z-[201] bg-white rounded-lg shadow-xl p-8 overflow-hidden">
+        <div className="relative z-[201] bg-white dark:bg-gray-800 rounded-lg shadow-xl p-8 overflow-hidden">
           <div className="flex items-center gap-3">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-            <span className="text-slate-700">Loading locations...</span>
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-sky-600"></div>
+            <span className="text-gray-700 dark:text-gray-300">Loading locations...</span>
           </div>
         </div>
       </div>
@@ -494,26 +494,26 @@ export default function LocationSelector({ onClose, onSelect, selectedLocation, 
   if (isMultiStoreUser && userRole !== 'admin') {
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[200] overflow-hidden">
-        <div className="relative z-[201] bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] flex flex-col overflow-hidden">
-          <div className="p-4 border-b border-slate-200 flex items-center justify-between">
-            <h2 className="text-xl font-bold text-slate-900">Select Store</h2>
+        <div className="relative z-[201] bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] flex flex-col overflow-hidden">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white">Select Store</h2>
             <button
               onClick={onClose}
-              className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
             >
-              <X className="w-5 h-5 text-slate-500" />
+              <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             </button>
           </div>
 
-          <div className="p-4 border-b border-slate-200">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500" />
               <input
                 type="text"
                 placeholder="Search your stores..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent"
               />
             </div>
           </div>
@@ -534,17 +534,17 @@ export default function LocationSelector({ onClose, onSelect, selectedLocation, 
                           handleSelectStore(store, company, concept);
                         }
                       }}
-                      className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 rounded-lg transition-colors text-left"
+                      className="w-full flex items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors text-left"
                     >
                       {getLocationIcon('store', 'w-5 h-5')}
                       <div className="flex-1">
-                        <div className="font-medium text-slate-900">{store.name}</div>
+                        <div className="font-medium text-gray-900 dark:text-white">{store.name}</div>
                         {company && (
-                          <div className="text-xs text-slate-500">{company.name}</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">{company.name}</div>
                         )}
                       </div>
                       {selectedLocation?.store?.id === store.id && (
-                        <div className="w-2 h-2 rounded-full bg-blue-600"></div>
+                        <div className="w-2 h-2 rounded-full bg-sky-600"></div>
                       )}
                     </button>
                   );
@@ -558,23 +558,23 @@ export default function LocationSelector({ onClose, onSelect, selectedLocation, 
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[200] overflow-hidden">
-      <div className="relative z-[201] bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[80vh] flex flex-col overflow-hidden">
-        <div className="p-4 border-b border-slate-200 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-slate-900">Select Location</h2>
+      <div className="relative z-[201] bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[80vh] flex flex-col overflow-hidden">
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Select Location</h2>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
           >
-            <X className="w-5 h-5 text-slate-500" />
+            <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
           </button>
         </div>
 
-        <div className="p-4 border-b border-slate-200 space-y-3">
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700 space-y-3">
           {/* Return to WAND Digital link for admins when in a context */}
           {userRole === 'admin' && (viewContext?.concept || viewContext?.company) && (
             <button
               onClick={() => onSelect({})}
-              className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium"
+              className="flex items-center gap-2 text-sm text-sky-600 dark:text-sky-400 hover:text-sky-700 font-medium"
             >
               ← Return to WAND Digital
             </button>
@@ -588,11 +588,11 @@ export default function LocationSelector({ onClose, onSelect, selectedLocation, 
                 <>
                   <button
                     onClick={() => setViewContext({})}
-                    className="text-blue-600 hover:text-blue-700 hover:underline"
+                    className="text-sky-600 dark:text-sky-400 hover:text-sky-700 hover:underline"
                   >
                     WAND Digital
                   </button>
-                  <ChevronRight className="w-4 h-4 text-slate-400" />
+                  <ChevronRight className="w-4 h-4 text-gray-400 dark:text-gray-500" />
                 </>
               )}
               {viewContext?.concept && (
@@ -602,33 +602,33 @@ export default function LocationSelector({ onClose, onSelect, selectedLocation, 
                     userRole === 'admin' ? (
                       <button
                         onClick={() => setViewContext({ concept: viewContext.concept })}
-                        className="text-blue-600 hover:text-blue-700 hover:underline"
+                        className="text-sky-600 dark:text-sky-400 hover:text-sky-700 hover:underline"
                       >
                         {viewContext.concept.name}
                       </button>
                     ) : (
-                      <span className="text-slate-700">{viewContext.concept.name}</span>
+                      <span className="text-gray-700 dark:text-gray-300">{viewContext.concept.name}</span>
                     )
                   ) : (
-                    <span className="text-slate-700 font-medium">{viewContext.concept.name}</span>
+                    <span className="text-gray-700 dark:text-gray-300 font-medium">{viewContext.concept.name}</span>
                   )}
-                  {viewContext.company && <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  {viewContext.company && <ChevronRight className="w-4 h-4 text-gray-400 dark:text-gray-500" />}
                 </>
               )}
               {viewContext?.company && (
-                <span className="text-slate-700 font-medium">{viewContext.company.name}</span>
+                <span className="text-gray-700 dark:text-gray-300 font-medium">{viewContext.company.name}</span>
               )}
             </div>
           )}
 
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 w-5 h-5" />
             <input
               type="text"
               placeholder="Search concepts, companies, or stores..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent"
             />
           </div>
         </div>
@@ -636,7 +636,7 @@ export default function LocationSelector({ onClose, onSelect, selectedLocation, 
         <div className="flex-1 overflow-y-auto p-4 min-h-[400px]">
           {/* Always show full tree hierarchy */}
           {filteredConcepts.length === 0 ? (
-            <div className="text-center py-4 text-slate-500">No locations found</div>
+            <div className="text-center py-4 text-gray-500 dark:text-gray-400">No locations found</div>
           ) : (
             <div className="space-y-2">
               {filteredConcepts.map((concept) => {
@@ -644,11 +644,11 @@ export default function LocationSelector({ onClose, onSelect, selectedLocation, 
                 const isExpanded = expandedConcepts.has(concept.id);
 
                 return (
-                  <div key={concept.id} className="border border-slate-200 rounded-lg">
-                    <div className="flex items-center gap-2 p-3 hover:bg-slate-50">
+                  <div key={concept.id} className="border border-gray-200 dark:border-gray-700 rounded-lg">
+                    <div className="flex items-center gap-2 p-3 hover:bg-gray-50 dark:hover:bg-gray-700">
                       <button
                         onClick={() => handleExpandConcept(concept.id)}
-                        className="p-1 hover:bg-slate-200 rounded transition-colors"
+                        className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
                       >
                         {(conceptCompanies.length > 0 || userRole === 'admin') && (
                           isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />
@@ -657,30 +657,30 @@ export default function LocationSelector({ onClose, onSelect, selectedLocation, 
                       {getLocationIcon('concept', "w-5 h-5")}
                       <button
                         onClick={() => handleSelectConcept(concept)}
-                        className="flex-1 text-left font-medium text-slate-900 hover:text-blue-600"
+                        className="flex-1 text-left font-medium text-gray-900 dark:text-white hover:text-sky-600 dark:hover:text-sky-400"
                       >
                         {concept.name}
                       </button>
                       {conceptCompanies.length > 0 && (
-                        <span className="text-sm text-slate-500">{conceptCompanies.length} companies</span>
+                        <span className="text-sm text-gray-500 dark:text-gray-400">{conceptCompanies.length} companies</span>
                       )}
                     </div>
 
                     {isExpanded && (
                       <div className="pl-8 pr-3 pb-2 space-y-1">
                         {conceptCompanies.length === 0 ? (
-                          <div className="p-2 text-sm text-slate-500">No companies found</div>
+                          <div className="p-2 text-sm text-gray-500 dark:text-gray-400">No companies found</div>
                         ) : (
                           conceptCompanies.map((company) => {
                           const companyStores = getStoresForCompany(company.id);
                           const isCompanyExpanded = expandedCompanies.has(company.id);
 
                           return (
-                            <div key={company.id} className="border-l-2 border-slate-200 pl-2">
-                              <div className="flex items-center gap-2 p-2 hover:bg-slate-50 rounded">
+                            <div key={company.id} className="border-l-2 border-gray-200 dark:border-gray-700 pl-2">
+                              <div className="flex items-center gap-2 p-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded">
                                 <button
                                   onClick={() => handleExpandCompany(company.id)}
-                                  className="p-1 hover:bg-slate-200 rounded transition-colors"
+                                  className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
                                 >
                                   {(companyStores.length > 0 || userRole === 'admin') && (
                                     isCompanyExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />
@@ -689,20 +689,20 @@ export default function LocationSelector({ onClose, onSelect, selectedLocation, 
                                 {getLocationIcon('company', "w-4 h-4")}
                                 <button
                                   onClick={() => handleSelectCompany(company, concept)}
-                                  className="flex-1 text-left text-slate-700 hover:text-blue-600"
+                                  className="flex-1 text-left text-gray-700 dark:text-gray-300 hover:text-sky-600 dark:hover:text-sky-400"
                                 >
                                   {company.name}
                                 </button>
                                 {companyStores.length > 0 && (
-                                  <span className="text-xs text-slate-500">{companyStores.length} stores</span>
+                                  <span className="text-xs text-gray-500 dark:text-gray-400">{companyStores.length} stores</span>
                                 )}
                               </div>
 
                               {isCompanyExpanded && (
                                 <div className="pl-6 space-y-1">
                                   {loadingStores.has(company.id) && (
-                                    <div className="p-2 text-xs text-slate-500 flex items-center gap-2">
-                                      <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
+                                    <div className="p-2 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                                      <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-sky-600"></div>
                                       Loading stores...
                                     </div>
                                   )}
@@ -710,10 +710,10 @@ export default function LocationSelector({ onClose, onSelect, selectedLocation, 
                                     <button
                                       key={store.id}
                                       onClick={() => handleSelectStore(store, company, concept)}
-                                      className="flex items-center gap-2 p-2 hover:bg-blue-50 rounded w-full text-left"
+                                      className="flex items-center gap-2 p-2 hover:bg-sky-50 dark:hover:bg-sky-900/30 rounded w-full text-left"
                                     >
                                       {getLocationIcon('store', "w-4 h-4")}
-                                      <span className="text-slate-600 hover:text-blue-600 text-sm">{store.name}</span>
+                                      <span className="text-gray-600 dark:text-gray-400 hover:text-sky-600 dark:hover:text-sky-400 text-sm">{store.name}</span>
                                     </button>
                                   ))}
                                 </div>
