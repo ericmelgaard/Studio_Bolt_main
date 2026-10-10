@@ -93,7 +93,8 @@ function App() {
     return <LoadingFallback />;
   }
 
-  const uploadMatch = window.location.pathname.match(/^\/upload\/(.+)$/);
+  const appPath = window.location.pathname.slice(import.meta.env.BASE_URL.length - 1);
+  const uploadMatch = appPath.match(/^\/upload\/(.+)$/);
   if (uploadMatch) {
     return (
       <Suspense fallback={<LoadingFallback />}>

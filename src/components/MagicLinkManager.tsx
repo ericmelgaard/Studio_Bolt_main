@@ -133,7 +133,7 @@ export default function MagicLinkManager({ configId }: MagicLinkManagerProps) {
 
   const handleCopyLink = () => {
     if (!magicLink) return;
-    const url = `${window.location.origin}/upload/${magicLink.link_token}`;
+    const url = `${window.location.origin}${import.meta.env.BASE_URL}upload/${magicLink.link_token}`;
     navigator.clipboard.writeText(url);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
@@ -309,7 +309,7 @@ export default function MagicLinkManager({ configId }: MagicLinkManagerProps) {
                 <div className="flex items-center gap-2 mb-2">
                   <div className="flex-1 flex items-center gap-2 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg">
                     <span className="text-sm text-slate-600 font-mono truncate">
-                      {`${window.location.origin}/upload/${magicLink.link_token.substring(0, 12)}...`}
+                      {`${window.location.origin}${import.meta.env.BASE_URL}upload/${magicLink.link_token.substring(0, 12)}...`}
                     </span>
                   </div>
                   <button

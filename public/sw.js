@@ -11,9 +11,9 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(ASSETS_CACHE).then((cache) => {
       return cache.addAll([
-        '/manifest.json',
-        '/logo_32.png',
-        '/WandLogoNoText.png'
+        'manifest.json',
+        'logo_32.png',
+        'WandLogoNoText.png'
       ]);
     })
   );

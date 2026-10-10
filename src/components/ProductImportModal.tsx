@@ -136,7 +136,7 @@ export default function ProductImportModal({
 
     const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
     const detectedTranslationLocales = new Set<string>();
-    const mappings: ColumnMapping[] = [];
+    let mappings: ColumnMapping[] = [];
 
     headers.forEach(header => {
       const translationMatch = header.match(/^(.+)_(fr[-_]FR|es[-_]ES|de[-_]DE|it[-_]IT|pt[-_]PT)$/i);
