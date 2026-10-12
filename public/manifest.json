@@ -1,7 +1,7 @@
 {
-  "name": "WAND Operator Hub",
-  "short_name": "Operator Hub",
-  "description": "WAND Digital Operator Hub for Store Management",
+  "name": "Studio Playground",
+  "short_name": "Studio Playground",
+  "description": "WAND Digital admin prototype.",
   "version": "1.0.2",
   "start_url": ".",
   "scope": ".",
