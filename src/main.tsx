@@ -12,20 +12,28 @@ if ('serviceWorker' in navigator) {
       .then((registration) => {
         console.log('[App] Service Worker registered');
 
+        // update() rejects if the registration has gone away (e.g. a failed install);
+        // that's not actionable here, so don't surface it as an uncaught error
+        const checkForUpdate = () => {
+          registration.update().catch((error) => {
+            console.warn('[App] Service Worker update check failed:', error);
+          });
+        };
+
         // Check for updates immediately on load
-        registration.update();
+        checkForUpdate();
 
         // Check for updates every 30 seconds (more aggressive)
         setInterval(() => {
           console.log('[App] Checking for Service Worker updates');
-          registration.update();
+          checkForUpdate();
         }, 30000);
 
         // Also check when the page becomes visible (user switches back to tab)
         document.addEventListener('visibilitychange', () => {
           if (!document.hidden) {
             console.log('[App] Page visible, checking for updates');
-            registration.update();
+            checkForUpdate();
           }
         });
 

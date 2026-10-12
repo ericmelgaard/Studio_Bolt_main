@@ -1,7 +1,7 @@
 // Service Worker for PWA with automatic updates
-const CACHE_VERSION = 'v5-20260204-1';
-const BUILD_TIMESTAMP = '20260204-1';
-const CACHE_NAME = `wand-operator-hub-${CACHE_VERSION}`;
+const CACHE_VERSION = 'v6-20261012-1';
+const BUILD_TIMESTAMP = '20261012-1';
+const CACHE_NAME = `studio-playground-${CACHE_VERSION}`;
 const HTML_CACHE = `wand-html-${CACHE_VERSION}`;
 const ASSETS_CACHE = `wand-assets-${CACHE_VERSION}`;
 
@@ -10,10 +10,10 @@ self.addEventListener('install', (event) => {
   console.log('[SW] Installing new service worker:', CACHE_VERSION);
   event.waitUntil(
     caches.open(ASSETS_CACHE).then((cache) => {
+      // Every file here must exist in dist/ — one 404 fails the whole install
       return cache.addAll([
         'manifest.json',
-        'logo_32.png',
-        'WandLogoNoText.png'
+        'icon-192x192.png'
       ]);
     })
   );
