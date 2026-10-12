@@ -26,7 +26,9 @@ jobs:
       - run: npm ci
       - run: npm run build
         env:
-          BASE_PATH: /${{ github.event.repository.name }}/
+          # Served from the root of the custom domain (studio.playground.wanddigital.com).
+          # Without a custom domain this would be /${{ github.event.repository.name }}/
+          BASE_PATH: /
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
       # Pages has no SPA fallback; serve the app for deep links like /upload/<token>

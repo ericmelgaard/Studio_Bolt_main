@@ -51,7 +51,7 @@ Serves the `dist/` build locally so you can check it before deploying. Run `npm 
 
 Pushing to `main` publishes the site automatically
 (`.github/workflows/deploy.yml`). It goes live at
-https://ericmelgaard.github.io/Studio_Playground/ a minute or two later.
+https://studio.playground.wanddigital.com/ a minute or two later.
 
 ```bash
 git push
